@@ -7,7 +7,7 @@
 - `core/`              渲染引擎（本地 OpenCV / Pillow / ffmpeg + 火山方舟文生视频·图，走标准库 urllib，无需额外 SDK）
 - `static/`            前端页面 + 模板封面/样片 + 字体（9 个 ttf，已含中文）
 - `bgm/`               背景音乐（各模板固定选曲用，约 28 个文件）
-- `config.example.json` 运行配置模板（不含密钥）
+- `config.json`        运行配置（含火山方舟 API Key 与访问口令）
 - `bgm_meta.json`      BGM 元数据
 - `requirements.txt`   Python 依赖
 - `data/`              运行期目录（用户工程 / 上传图 / 成片），首次运行自动创建
@@ -26,19 +26,10 @@ pip install -r requirements.txt
 ```
 
 ## 四、配置 config.json（上线前必看）
-首次部署时，从模板创建本机配置：
-```bash
-cp config.example.json config.json
-```
-Windows PowerShell：
-```powershell
-Copy-Item config.example.json config.json
-```
-
 - `port`：服务端口（默认 8790）
-- `video_api.api_key` / `storyboard_api.api_key`：分别配置火山方舟 ARK Key；也可在工作台设置中填写。
-- `access_password`：工作台 Web 访问口令；也可通过 `STUDIO_PASSWORD` 环境变量配置。
-- `config.json` 是本机配置，已加入 Git 忽略规则。不要提交 API Key、访问口令等凭据。
+- `video_api.api_key` / `storyboard_api.api_key`：火山方舟 ARK Key（文件内已内置可用值）
+- `access_password`：工作台 Web 访问口令（已内置 `Arrow-Sage-2026`）
+- ⚠️ 安全提示：`config.json` 内含真实 API Key 与访问口令。仅限可信渠道传输；上线后建议在火山方舟后台轮换 Key，并修改 `access_password`。
 
 ## 五、启动（关键！绑定地址取决于是否设置 PORT）
 本服务绑定逻辑：
@@ -83,7 +74,7 @@ server {
 存放用户工程、上传图片、成片视频，会随使用持续增长，请确保磁盘空间充足并定期清理。首次运行自动创建，无需手动建。
 
 ## 九、常见问题排查
-- 视频生成返回 401：ARK Key 失效或额度不足 → 更新工作台设置或本机 `config.json` 的 `api_key`。
+- 视频生成返回 401：ARK Key 失效或额度不足 → 更新 `config.json` 的 `api_key`。
 - 视频生成返回 404：模型名不存在 → 核对 `storyboard_api.model` / `video_api.model`。
 - 中文界面 / 字幕乱码：服务器需有中文字体，`static/fonts/` 已内置 9 个 ttf。
 - 上传或成片失败：检查 nginx `client_max_body_size` 与 `proxy_read_timeout` 是否够大。
