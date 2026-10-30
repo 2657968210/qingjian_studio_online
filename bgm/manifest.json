@@ -1,0 +1,83 @@
+{
+ "music": {
+  "carefree": {
+   "file": "carefree.mp3",
+   "credit": "Carefree - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "悠闲·夏日轻快",
+   "light": true,
+   "duration": 205.1
+  },
+  "wallpaper": {
+   "file": "wallpaper.mp3",
+   "credit": "Wallpaper - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "清亮·俏皮跃动",
+   "light": true,
+   "duration": 220.1
+  },
+  "cheery_monday": {
+   "file": "cheery_monday.mp3",
+   "credit": "Cheery Monday - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "明快·欢快流行",
+   "light": true,
+   "duration": 80.2
+  },
+  "life_of_riley": {
+   "file": "life_of_riley.mp3",
+   "credit": "Life of Riley - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "轻摇滚·活力",
+   "light": true,
+   "duration": 235.4
+  },
+  "wholesome": {
+   "file": "wholesome.mp3",
+   "credit": "Wholesome - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "清新·温和上扬",
+   "light": true,
+   "duration": 363.8
+  },
+  "canon_in_d": {
+   "file": "canon_in_d.mp3",
+   "credit": "Canon in D Major - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "古典·婚礼进行曲",
+   "light": false,
+   "duration": 355.7
+  },
+  "heartwarming": {
+   "file": "heartwarming.mp3",
+   "credit": "Heartwarming - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "温暖钢琴·柔和",
+   "light": false,
+   "duration": 72.0
+  },
+  "dreams_become_real": {
+   "file": "dreams_become_real.mp3",
+   "credit": "Dreams Become Real - Kevin MacLeod (incompetech.com), CC-BY 4.0",
+   "mood": "氛围·梦幻",
+   "light": false,
+   "duration": 410.1
+  },
+  "link_ncs": {
+   "file": "link_ncs.mp3",
+   "credit": "Link - Jim Yosef (NCS Release / NoCopyrightSounds), royalty-free — 商用需在视频简介署名: 'Music: Link by Jim Yosef | NCS'",
+   "mood": "明快·潮流电子",
+   "light": true,
+   "duration": 224.0
+  },
+  "user_paulyudin": {
+   "file": "user_paulyudin.mp3",
+   "license": "User upload",
+   "credit": "paulyudin - wedding music (user upload)",
+   "mood": "婚礼·抒情流行",
+   "light": false,
+   "duration": 102.9
+  },
+  "crystaleyeofficial": {
+   "file": "crystaleyeofficial-.mp3",
+   "license": "User upload",
+   "credit": "crystaleyeofficial - product showcase music (user upload)",
+   "mood": "明快·流行电子",
+   "light": true,
+   "duration": 60.0
+  }
+ }
+}

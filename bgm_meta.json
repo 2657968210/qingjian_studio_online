@@ -1,0 +1,184 @@
+{
+  "measured_at": "2026-09-29",
+  "method": "onset-flux (spectral flux, 1024/N512 @22050Hz) autocorrelation over a 45 s window starting at 0:25; octave-halved when the half-tempo peak is within 62% of the max",
+  "notes": "bpm/rms_dbfs/centroid_hz are measured from the audio itself. license is the studio's existing filename convention (CC-BY in the name -> CC BY 3.0, otherwise Mixkit), not an independent verification. | 2026-09-29: added 3 fast tracks (mixkit 1001/1012/113) measured with same method; BPM stored as the 110-140 four-on-the-floor interpretation (half-tempo peak discarded for EDM). | 2026-09-30: added 6 tracks (mixkit 106/1064/1167/227/1028/114), same method. Fast tier now 1.5s/shot -> 4-beat target 160 BPM unavailable, 3-beat target 120 BPM covered by 117.5x2 + 123x2 + 129.2.",
+  "tracks": [
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Ceremony_Alex-Productions_CC-BY.mp3",
+      "name": "Ceremony_Alex-Productions_CC-BY",
+      "bpm": 60.1,
+      "rms_dbfs": -16.0,
+      "centroid_hz": 446.0,
+      "license": "CC BY 3.0",
+      "mood": "calm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Wedding_01_657.mp3",
+      "name": "Wedding_01_657",
+      "bpm": 68.0,
+      "rms_dbfs": -18.9,
+      "centroid_hz": 1076.0,
+      "license": "Mixkit",
+      "mood": "calm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Wedding_Harp_672.mp3",
+      "name": "Wedding_Harp_672",
+      "bpm": 71.8,
+      "rms_dbfs": -14.1,
+      "centroid_hz": 675.0,
+      "license": "Mixkit",
+      "mood": "calm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\canon_in_d.mp3",
+      "name": "canon_in_d",
+      "bpm": 86.1,
+      "rms_dbfs": -22.0,
+      "centroid_hz": 1367.0,
+      "license": "Mixkit",
+      "mood": "warm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\carefree.mp3",
+      "name": "carefree",
+      "bpm": 95.7,
+      "rms_dbfs": -21.1,
+      "centroid_hz": 1635.0,
+      "license": "Mixkit",
+      "mood": "bright"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\cheery_monday.mp3",
+      "name": "cheery_monday",
+      "bpm": 103.4,
+      "rms_dbfs": -10.7,
+      "centroid_hz": 1224.0,
+      "license": "Mixkit",
+      "mood": "bright"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\dreams_become_real.mp3",
+      "name": "dreams_become_real",
+      "bpm": 76.0,
+      "rms_dbfs": -25.7,
+      "centroid_hz": 400.0,
+      "license": "Mixkit",
+      "mood": "warm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\heartwarming.mp3",
+      "name": "heartwarming",
+      "bpm": 80.7,
+      "rms_dbfs": -21.2,
+      "centroid_hz": 743.0,
+      "license": "Mixkit",
+      "mood": "warm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\life_of_riley.mp3",
+      "name": "life_of_riley",
+      "bpm": 103.4,
+      "rms_dbfs": -17.3,
+      "centroid_hz": 2083.0,
+      "license": "Mixkit",
+      "mood": "bright"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\wallpaper.mp3",
+      "name": "wallpaper",
+      "bpm": 92.3,
+      "rms_dbfs": -8.6,
+      "centroid_hz": 1138.0,
+      "license": "Mixkit",
+      "mood": "bright"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\wholesome.mp3",
+      "name": "wholesome",
+      "bpm": 64.6,
+      "rms_dbfs": -16.7,
+      "centroid_hz": 546.0,
+      "license": "Mixkit",
+      "mood": "calm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\I_Do_mixkit1001.mp3",
+      "name": "I_Do_mixkit1001",
+      "bpm": 129.2,
+      "rms_dbfs": -18.7,
+      "centroid_hz": 2975.0,
+      "license": "Mixkit",
+      "mood": "bright"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Take_This_Higher_mixkit1012.mp3",
+      "name": "Take_This_Higher_mixkit1012",
+      "bpm": 123.0,
+      "rms_dbfs": -14.9,
+      "centroid_hz": 2936.0,
+      "license": "Mixkit",
+      "mood": "edm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\House_Fest_mixkit113.mp3",
+      "name": "House_Fest_mixkit113",
+      "bpm": 123.0,
+      "rms_dbfs": -11.5,
+      "centroid_hz": 2892.0,
+      "license": "Mixkit",
+      "mood": "edm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Deep_Techno_mixkit106.mp3",
+      "name": "Deep Techno",
+      "bpm": 117.5,
+      "license": "Mixkit",
+      "mood": "edm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Goup_the_Wall_mixkit1064.mp3",
+      "name": "Goup the Wall",
+      "bpm": 117.5,
+      "license": "Mixkit",
+      "mood": "edm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Close_Up_mixkit1167.mp3",
+      "name": "Close Up",
+      "bpm": 103.4,
+      "license": "Mixkit",
+      "mood": "bright"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\JB_RnB_mixkit227.mp3",
+      "name": "J.B. R&B Music",
+      "bpm": 92.3,
+      "license": "Mixkit",
+      "mood": "warm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Fifth_of_February_mixkit1028.mp3",
+      "name": "Fifth of February",
+      "bpm": 99.4,
+      "license": "Mixkit",
+      "mood": "bright"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\Kodama_Night_Town_mixkit114.mp3",
+      "name": "Kodama Night Town",
+      "bpm": 69.8,
+      "license": "Mixkit",
+      "mood": "calm"
+    },
+    {
+      "file": "E:\\推广素材\\工作台\\bgm\\link_ncs.mp3",
+      "name": "link_ncs",
+      "bpm": 128.0,
+      "rms_dbfs": -14.0,
+      "centroid_hz": 2100.0,
+      "license": "NCS",
+      "mood": "bright"
+    }
+  ]
+}

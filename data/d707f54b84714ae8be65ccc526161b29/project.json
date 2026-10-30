@@ -1,0 +1,22 @@
+{
+  "id": "d707f54b84714ae8be65ccc526161b29",
+  "name": "carousel test",
+  "created": 1793162757.8724759,
+  "uploads": [],
+  "processed": {},
+  "elements": [],
+  "cameramove": [],
+  "storyboards": [],
+  "handheld_videos": [],
+  "exports": [],
+  "smart_photos": {},
+  "owner_sid": null,
+  "carousel": [
+    {
+      "file": "E:\\推广素材\\工作台_online\\data\\d707f54b84714ae8be65ccc526161b29\\carousel\\carousel_9x16_1028124615860.mp4",
+      "name": "Carousel 8.0s",
+      "kind": "carousel",
+      "dur": 8.0
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "cloud_token": "",
+  "port": 8790,
+  "video_api": {
+    "provider": "volcengine_ark",
+    "endpoint": "",
+    "api_key": "",
+    "model": "doubao-seedance-2-0-mini-260615",
+    "resolution": "720p",
+    "ratio": "9:16",
+    "generate_audio": false,
+    "watermark": false,
+    "camera_fixed": false
+  },
+  "storyboard_api": {
+    "provider": "volcengine_ark",
+    "endpoint": "",
+    "api_key": "",
+    "model": "doubao-seedream-5-0-260128",
+    "size": "4K",
+    "output_format": "jpeg",
+    "max_images": 3,
+    "sequential": "auto",
+    "watermark": false,
+    "optimize_prompt": "standard"
+  },
+  "access_password": ""
+}
