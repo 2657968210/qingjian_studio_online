@@ -9,10 +9,10 @@
     SUB（花体，如 Dusty Blue），白色 + 柔和阴影；
     show_text=False 或两者皆空则不叠任何文字；不叠 logo/网址；
     图片不加任何暗化遮罩、不做调色（用户红线：无滤镜调色）。
-  * 段二：全部 N 张图依次单图展示，硬切，每张按图匹配合适运镜
-    （纸品/竖幅主体→推近，横幅场景→横扫，平铺→微旋；由 image_motion 自动判定），
-    单图停留 CUT_DUR（2026-10-26 用户定：运镜放慢 + 整片最短≈15s）；
-    单图上不叠任何文字；总时长 = 四宫格定格 + CUT_DUR×N，随图片数增长。
+  * 段二：全部 N 张图依次单图展示，硬切，**不使用运镜**（2026-11-02 用户定：
+    Grid Showcase 单图显示只做切换）；每张满幅停留 1.2~1.8s（按序交替，落在 1~2s
+    区间内，制造轻微节奏）；单图上不叠任何文字；总时长 = 四宫格定格 +
+    各图停留时长之和，随图片数增长。
   * 仅出画面，不含配乐；配乐由调用方（server）混，与本工作台其它模版一致。
 
 与 scroll_gallery / multi_suite 完全独立：本模块只做「四宫格 + 快切」。
@@ -58,7 +58,8 @@ GRID_DUR = GRID_APPEAR + 1.0              # 出现后再定格 1s 转单图切�
 # 文字依次显现：标题先浮、副标题随后（均在第2张出现后启动，慢浮现）
 TXT_T0, TXT_T1 = CELL_STAG + 0.15, CELL_STAG + 1.25   # 标题淡入窗口
 TXT_S0, TXT_S1 = CELL_STAG + 0.80, CELL_STAG + 1.95   # 副标题淡入窗口（标题约6成后启动）
-CUT_DUR = 3.0           # 单图展示每张时长（s）—— 2026-10-26 放慢运镜 + 整片最短≈15s（4 图 = 3.0+12.0）
+CUT_DUR_MIN = 1.3       # 单图展示每张最短停留（s）—— 2026-11-02 用户定：不运镜，仅切换，每张 1~2s
+CUT_DUR_MAX = 1.7       # 单图展示每张最长停留（s）—— 与 MIN 交替，落在 1~2s 区间内
 
 CRF = 17
 PRESET = "slow"
@@ -149,15 +150,20 @@ def _build_text_overlay(title, subtitle, W, H, font_key=None):
     else:
         mid = int(0.513 * H)
         title_cy, sub_cy = mid, mid
-    # 花体副标题：克制适配至屏宽 46%（弱视觉膨胀、给方体让空间）
+    # 花体副标题：适配至屏宽 56%（2026-11-03 用户：第二行花体字号太小，加大）
+    title_basis = 0
     if subtitle:
-        f_script, _ = _fit_font(spath, subtitle, 0.0, 0.46 * W)
+        f_script, _ = _fit_font(spath, subtitle, 0.0, 0.56 * W)
         sub_px = f_script.size
+        # 方体标题仍按旧花体基准（0.46W）取字号——2026-11-03 用户：方体大小不变
+        f_basis, _ = _fit_font(spath, subtitle, 0.0, 0.46 * W)
+        title_basis = f_basis.size
     else:
         sub_px = 0
-    # 衬线（方体）标题：明确大于花体副标题（× TITLE_RATIO），限最大屏宽 86% 防出屏
+    # 衬线（方体）标题：明确大于花体副标题（× TITLE_RATIO，基准=旧花体字号），
+    # 限最大屏宽 86% 防出屏
     if title:
-        title_px = (int(round(sub_px * TITLE_RATIO)) if sub_px
+        title_px = (int(round(title_basis * TITLE_RATIO)) if title_basis
                     else int(0.11 * W))
         trk = 0.14 * title_px
         while _measure(title, ImageFont.truetype(tpath, title_px), trk) > 0.86 * W and title_px > 40:
@@ -198,16 +204,9 @@ def render_four_grid(images, out_path, ratio="9x16", fps=30,
     cells_bgr = [_cover_resize(_imread_bgr(p), cw, ch) for p in paths[:4]]
     cell_pos = [(0, 0), (cw, 0), (0, ch), (cw, ch)]
 
-    # 单图段：加载原图（低清超分）+ 逐张图像感知运镜决策（不固定推近）
+    # 单图段：加载原图并裁成满幅，每张硬切展示（2026-11-02 用户定：不运镜，仅切换）
     ASP_F = W / float(H)
-    imgs_bgr = [imn._upscale_bgr(_imread_bgr(p)) for p in paths]
-    ANS = []
-    for k, im in enumerate(imgs_bgr):
-        a = imn.analyze(im, "G%d" % k, aspect=ASP_F)
-        a["_ih"], a["_iw"] = im.shape[:2]
-        ANS.append(a)
-    PLAN = [imn.decide_fullscreen(a, ASP_F) for a in ANS]
-    SHOTS = [(PLAN[k][0], ANS[k]["focal_n"], PLAN[k][1]) for k in range(len(ANS))]
+    imgs_full = [_cover_resize(_imread_bgr(p), W, H) for p in paths]   # BGR 满幅
 
     # 文字 overlay（可选）
     if show_text:
@@ -220,8 +219,16 @@ def render_four_grid(images, out_path, ratio="9x16", fps=30,
     sub_a = sub_ov[:, :, 3].astype(np.float32)[..., None] / 255.0
 
     grid_frames = int(round(GRID_DUR * fps))
-    cut_frames = int(round(CUT_DUR * fps))
-    total = grid_frames + cut_frames * len(paths)
+    # 每张停留时长在 [CUT_DUR_MIN, CUT_DUR_MAX] 内按序交替；逐张硬切，无运镜
+    durs = [CUT_DUR_MIN + (CUT_DUR_MAX - CUT_DUR_MIN) * (k % 2)
+            for k in range(len(paths))]
+    cut_frames_list = [int(round(d * fps)) for d in durs]
+    seg_starts = []
+    _s = grid_frames
+    for cf in cut_frames_list:
+        seg_starts.append(_s)
+        _s += cf
+    total = _s
     total_secs = total / fps
 
     if progress:
@@ -252,16 +259,12 @@ def render_four_grid(images, out_path, ratio="9x16", fps=30,
                 if ts > 0:
                     frame = frame * (1 - sub_a * ts) + sub_rgb * (sub_a * ts)
             else:
-                k = i - grid_frames
-                img_i = k // cut_frames
-                p = (k % cut_frames) / max(cut_frames - 1, 1)
-                pe = p * p * (3 - 2 * p)   # smoothstep 缓动
-                mot, focal, par = SHOTS[img_i]
-                _kw = ({"push": par} if mot == "push"
-                       else {"pan": par} if mot in ("panL", "panR")
-                       else {"rot": par} if mot == "rot" else {})
-                frame = imn.render_single_shot(imgs_bgr[img_i], mot, focal, pe, W, H,
-                                              **_kw).astype(np.float32)
+                # 单图段：满幅硬切展示，不使用运镜
+                img_i = len(seg_starts) - 1
+                for _j, _st in enumerate(seg_starts):
+                    if i >= _st:
+                        img_i = _j
+                frame = imgs_full[img_i][..., ::-1].astype(np.float32)   # BGR->RGB
             proc.stdin.write(frame.astype(np.uint8).tobytes())
             if progress and (i % 60 == 0):
                 progress(int(15 + 80 * i / max(total, 1)), 100, "Rendering")

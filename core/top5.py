@@ -9,7 +9,7 @@ Online (2026-10-27) parameterised build:
   * per-photo SKU (style) + rank number, both user-fillable
   * rank blank -> auto countdown 01..N (first photo = N, last = 01)
   * BGM optional (default user_paulyudin)
-  * 5 camera moves (push/panLR/panDiag/pull/rot) greedy by image traits,
+  * camera moves limited to basic pans (left/right/up/down) + dolly (push/pull),
     adjacent never repeats: 3-5 photos fully unique, 6-8 cycle
   * layout (final): bottom-left maroon number block (centred) + SKU white text
     to its right, vertically centred, no plate / no filename
@@ -34,7 +34,7 @@ TITLE_BG = (233, 231, 228)
 PAN_ZOOM = 1.18
 PAN_FRAC = 0.30
 
-POOL = ["panLR", "panDiag", "rot", "push", "pull"]
+POOL = ["panLR", "panRL", "panUD", "panDU", "push", "pull"]
 
 # Sans-serif (Arial) shipped with the app so the online sandbox matches the
 # local render; fall back to the bundled Cormorant Garamond if Arial is absent.
@@ -134,7 +134,7 @@ def render_move(img, move, focal_n, p, W, H, push=FS_PUSH, pull=FS_PULL, rot=FS_
         bgr = _render_win(img, cx - w / 2, cy - h / 2, w, h, W, H)
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-    if move in ("panLR", "panDiag"):
+    if move in ("panLR", "panRL", "panUD", "panDU"):
         z = PAN_ZOOM
         _, _, w, h = focal_window(ih, iw, ASP_F, z, focal_n)
         slack_x = (iw - w) / 2.0
@@ -148,11 +148,13 @@ def render_move(img, move, focal_n, p, W, H, push=FS_PUSH, pull=FS_PULL, rot=FS_
         cx_c = min(max(fx_px, w / 2.0 + trav_x / 2.0), iw - w / 2.0 - trav_x / 2.0)
         cy_c = min(max(fy_px, h / 2.0 + trav_y / 2.0), ih - h / 2.0 - trav_y / 2.0)
         if move == "panLR":                 # left -> right
-            dx = -trav_x / 2 + trav_x * e
-            dy = 0.0
-        else:                               # panDiag: bottom-right -> top-left
-            dx = trav_x / 2 - trav_x * e
-            dy = trav_y / 2 - trav_y * e
+            dx, dy = -trav_x / 2 + trav_x * e, 0.0
+        elif move == "panRL":               # right -> left
+            dx, dy = trav_x / 2 - trav_x * e, 0.0
+        elif move == "panUD":               # top -> bottom (view descends)
+            dx, dy = 0.0, -trav_y / 2 + trav_y * e
+        else:                               # panDU: bottom -> top (view rises)
+            dx, dy = 0.0, trav_y / 2 - trav_y * e
         cx = cx_c + dx
         cy = cy_c + dy
         bgr = _render_win(img, cx - w / 2, cy - h / 2, w, h, W, H)
@@ -182,13 +184,17 @@ def pref_rank(an, aspect):
     paper, peak = an["paper"], an["peak_ratio"]
     s = {m: 1.0 for m in POOL}
     if paper:
-        s["push"] = 3.0; s["pull"] = 1.6; s["panDiag"] = 1.1; s["panLR"] = 0.9; s["rot"] = 1.0
+        s["pull"] = 3.0; s["push"] = 2.4
+        s["panLR"] = 1.6; s["panRL"] = 1.6; s["panUD"] = 1.6; s["panDU"] = 1.6
     elif aspect > 1.15:
-        s["panLR"] = 3.0; s["panDiag"] = 2.4; s["pull"] = 1.8; s["push"] = 1.0; s["rot"] = 0.8
+        s["panLR"] = 3.0; s["panRL"] = 2.6; s["panUD"] = 1.8; s["panDU"] = 1.8
+        s["pull"] = 1.6; s["push"] = 1.2
     elif peak < 1.6:
-        s["rot"] = 3.0; s["panDiag"] = 2.2; s["pull"] = 1.5; s["push"] = 1.0; s["panLR"] = 1.0
+        s["pull"] = 3.0; s["push"] = 2.2
+        s["panLR"] = 1.6; s["panRL"] = 1.6; s["panUD"] = 1.4; s["panDU"] = 1.4
     else:
-        s["push"] = 2.6; s["panDiag"] = 2.0; s["panLR"] = 1.6; s["pull"] = 1.5; s["rot"] = 1.0
+        s["push"] = 2.6; s["pull"] = 2.0
+        s["panLR"] = 1.8; s["panRL"] = 1.8; s["panUD"] = 1.6; s["panDU"] = 1.6
     return s
 
 
@@ -196,7 +202,7 @@ def assign_moves(anlist, aspects, fixed=None):
     """Greedy by per-image preference; adjacent never repeat.
     3-5 photos -> all unique; 6-8 -> cycle (still no adjacent repeat).
     `fixed` is an optional {index: move} map that pins specific shots to a move
-    (e.g. {0: "panLR", 3: "panDiag"}). Pinned shots keep their move even across
+    (e.g. {0: "panLR", 3: "panUD"}). Pinned shots keep their move even across
     the greedy pass, and the remaining shots avoid every already-used move
     (including pinned ones) so no duplicate occurs when N == len(POOL)."""
     if fixed is None:
@@ -233,7 +239,7 @@ def render_top5(srcs, out, skus=None, nums=None, bgm=None, ratio="9x16", fps=30,
         progress = lambda d, t, m="": None
     # Template default: shot 1 pans left->right, shot 4 pans bottom-right->top-left.
     if force_moves is None:
-        force_moves = {0: "panLR", 3: "panDiag"}
+        force_moves = {0: "panLR", 3: "panUD"}
     W, H = _dims(ratio)
     if skus is None:
         skus = ["" for _ in srcs]

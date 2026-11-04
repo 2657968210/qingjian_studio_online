@@ -132,11 +132,12 @@ def lerp(a, b, e):
 
 
 # ---------------- 字幕层（step4「Add Captions」可填一行） ----------------
-def _sub_text_layer(text, ow, size_frac=0.052, color=(251, 251, 235), font_path=None):
-    """把一行字幕渲染成 RGBA 图层（带柔影，奶油白，婚礼衬线斜体）。
+def _sub_text_layer(text, ow, size_frac=0.052, color=(255, 255, 255), font_path=None):
+    """把一行字幕渲染成 RGBA 图层（带柔影，纯白，婚礼衬线斜体）。
 
     text 空 → 返回 None（调用方据此跳过）。
     font_path: 客户自选字体（2026-10-26 core.fonts）；None = 斜体 CG 默认。
+    2026-11-03：颜色 (251,251,235)→纯白，位置由底部移至中上方（SUB_CY）。
     """
     font = None
     fpath = font_path or FONT_SUB
@@ -314,7 +315,7 @@ def render_three_screen(images, out_path, ratio="9x16", fps=30, progress=None,
                         captions=None, font=None):
     """N(5~12) 张图 -> 三屏错峰揭示开场 + 单屏图像感知运镜成片（仅画面，无音轨）。
 
-    captions : 可选字幕文本（str）；非空时烧一行奶油白衬线斜体在画面底部居中；
+    captions : 可选字幕文本（str）；非空时烧一行白色衬线斜体在画面中上方居中；
                留空/None 则不烧字幕。
     font     : 客户自选字体键（core.fonts；None = 斜体 CG 默认）。
     """
@@ -371,9 +372,10 @@ def render_three_screen(images, out_path, ratio="9x16", fps=30, progress=None,
     TOTAL_F = STARTS[-1]
     total_secs = TOTAL_F / float(fps)
 
-    # 字幕（step4「Add Captions」）：一行奶油白衬线斜体，居中底部 + 柔边压暗带
+    # 字幕（step4「Add Captions」）：一行白色衬线斜体，居中上方 + 柔边压暗带
+    # （2026-11-03 用户定稿：字幕统一放画面中上方，与其他模版 captions 一致）
     sub_layer = _sub_text_layer(captions, W, font_path=_fonts.ttf(font)) if captions else None
-    SUB_CY = 0.90
+    SUB_CY = 0.34
     SUB_HALF = 0.10
 
     def tri_progress(u, off):

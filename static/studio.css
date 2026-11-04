@@ -318,6 +318,66 @@ body {
 .col-title { margin: 0 0 16px; }
 .col-title .field { margin: 0; }
 .col-title .field input { max-width: 420px; }
+
+/* ---- Step 4 · separated subcards (Captions / Voiceover / Branding / Music) ---- */
+.subcard {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 16px 18px;
+  margin: 14px 0;
+  box-shadow: var(--shadow-1);
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.subcard.on { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+.subcard-head { display: flex; align-items: center; gap: 12px; }
+.subcard-no {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--surface-sunk); border: 1px solid var(--line-strong);
+  color: var(--ink-2); font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.subcard.on .subcard-no { background: var(--accent); border-color: var(--accent); color: #fff; }
+.subcard-titles { flex: 1 1 auto; min-width: 0; }
+.subcard-title { font-size: 15.5px; font-weight: 600; color: var(--ink); letter-spacing: .01em; }
+.subcard-sub { font-size: 12.5px; color: var(--ink-2); margin-top: 1px; }
+.subcard-body { padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line-soft); }
+.subcard-body[hidden] { display: none !important; }
+.subcard .field { margin: 14px 0; }
+.subcard .field:first-child { margin-top: 0; }
+
+/* toggle switch (Captions / Voiceover) */
+.switch { flex: none; position: relative; display: inline-block; width: 42px; height: 24px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch-track {
+  position: absolute; inset: 0; background: var(--line-strong); border-radius: 999px;
+  transition: background .18s;
+}
+.switch-track::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  background: #fff; border-radius: 50%; box-shadow: var(--shadow-1); transition: transform .18s;
+}
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked + .switch-track::after { transform: translateX(18px); }
+
+/* logo upload pill (Branding block) */
+.upload-pill {
+  display: inline-flex; align-items: stretch; gap: 0; max-width: 420px; width: 100%;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--surface-sunk); overflow: hidden;
+}
+.upload-pill-txt {
+  flex: 1 1 auto; padding: 9px 12px; font-size: 13px; color: var(--ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.upload-pill-btn {
+  flex: none; display: inline-flex; align-items: center; padding: 9px 16px;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.upload-pill-btn:hover { background: var(--accent-deep); }
+.upload-pill-btn input { display: none; }
+.hint.bad { color: var(--bad); }
+
 .mini {
   font: inherit; font-size: 12.5px; color: var(--ink-2); background: none;
   border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
@@ -561,7 +621,6 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
   /* 宽度跟随网格格子（不再固定 280px），min-width:0 防止内容把格子撑破 */
   width: auto;
   min-width: 0;
-  min-height: 470px;
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
   background: var(--surface); overflow: hidden; transition: .15s;
   display: flex; flex-direction: column;
@@ -594,7 +653,7 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
 
 .tpl-body { padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 9px; flex: 1; min-height: 0; }
 .tpl-body h4 { font-size: 14px; font-weight: 600; font-family: var(--sans); margin: 0; }
-.tpl-desc { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin: 0; flex: 1 1 auto; }
+.tpl-desc { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin: 0; flex: 0 0 auto; }
 .tpl-moves {
   font-size: 10px; color: var(--accent-deep); background: var(--accent-tint);
   border-radius: 999px; padding: 2px 8px;
@@ -649,3 +708,35 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
 .tpl-grid.single { grid-template-columns: minmax(0, 280px); }
 .tpl-grid.single .tpl-card { flex-direction: column; }
 .tpl-grid.single .tpl-body { padding: 15px 16px 16px; }
+
+/* ==== 2026-11-03 字体样式实时预览（随包字体 @font-face，与 core/fonts.py 同源） ==== */
+@font-face { font-family: "Cormorant SemiBold";       src: url("/static/fonts/CormorantGaramond-SemiBold.ttf"); }
+@font-face { font-family: "Cormorant SemiBoldItalic"; src: url("/static/fonts/CormorantGaramond-SemiBoldItalic.ttf"); }
+@font-face { font-family: "Cormorant MediumItalic";   src: url("/static/fonts/CormorantGaramond-MediumItalic.ttf"); }
+@font-face { font-family: "Great Vibes";              src: url("/static/fonts/GreatVibes-Regular.ttf"); }
+
+.font-preview {
+  margin: 0 0 12px;
+  min-height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #3a3a44 0%, #17171d 70%);
+  overflow: hidden;
+}
+.font-preview span {
+  color: #fff;
+  font-size: 27px;
+  line-height: 1.25;
+  font-family: "Cormorant SemiBoldItalic", serif;
+}
+.font-preview[data-font="serif"]  span { font-family: "Cormorant SemiBold", serif; }
+.font-preview[data-font="italic"] span { font-family: "Cormorant SemiBoldItalic", serif; }
+.font-preview[data-font="light"]  span { font-family: "Cormorant MediumItalic", serif; }
+.font-preview[data-font="script"] span { font-family: "Great Vibes", cursive; font-size: 32px; }
+
+/* 上传照片缩略图：可点击放大预览 */
+.photos .thumb img { cursor: zoom-in; }

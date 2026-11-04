@@ -4,7 +4,7 @@
 复刻用户 2026-10-21 确认的成品口径（参考 案例/快剪/document_810w-k5Y5ikVno0k.mp4，
  standalone 脚本 wed_fastcut_v2.py / v3 的既有取景）：
 
-  * N(3~12) 张图，每张出场 **2~3 次（动态）**：≤6 张出场 3 次、≥7 张出场 2 次；
+  * N(3~12) 张图，每张**仅出场 1 次、按顺序播放、不循环**（用户 2026-10-30 要求）；
     取景只保留 **全景(1.00) + 中景(1.10) 两档**，且全部**居中裁切**
     （anchor 恒为 0.5），去掉旧版的上/下竖锚漂移与 1.16 特写推近，
     保证产品始终在画面中央、不被裁切；按「全员一轮」循环排序；
@@ -139,8 +139,8 @@ def _static_shot(im, z, ay, W, H, txt_rgb, txt_a):
 
 
 def _appear_count(n):
-    """每张图出场次数：小批量 3 次、大批量 2 次（控总时长）。"""
-    return APPEAR_BIG if n >= APPEAR_BIG_THRESHOLD else APPEAR_SMALL
+    """每张图出场次数：固定 1 次（无论上传几张，均按顺序各显示一次，不循环）。"""
+    return 1
 
 
 def _framings(appear):
@@ -172,7 +172,7 @@ def render_fastcut(images, out_path, ratio="9x16", fps=30,
                    text=DEFAULT_TEXT, show_text=True, progress=None, font=None):
     """N(3~12) 张请柬图 → 节拍快剪成片（仅画面，无音轨）。
 
-    时长随张数自动增加：shots = 3N，secs = 3N × BEAT。
+    时长随张数自动增加：shots = N，secs = N × BEAT（每张仅 1 次，不循环）。
     font: 客户自选字体键（core.fonts；None = 斜体 CG 默认）。
     """
     from core import fonts as _fonts

@@ -94,7 +94,7 @@ def _job_timeout(jid, minutes):
             j["error"] = ("The task ran longer than %d minutes and was stopped. "
                           "Please try again." % minutes)
 
-def run_job(jid, fn, timeout_min=25):
+def run_job(jid, fn, timeout_min=25, branding=None):
     """在后台线程跑任务，并保证任务一定会落到终态（done / error）。
 
     ⚠ 2026-09-30 真实事故：清理临时文件时若被外部「安全删除钩子」拒绝，
@@ -120,6 +120,8 @@ def run_job(jid, fn, timeout_min=25):
         wd.start()
         try:
             result = fn()
+            if branding is not None:
+                result = _append_branding_outro(result, branding)
             finish("done", result=result)
         except KeyboardInterrupt:
             finish("error", error="The task was interrupted.")
@@ -144,6 +146,38 @@ def run_job(jid, fn, timeout_min=25):
                     j["error"] = ("The task stopped unexpectedly (no result was produced). "
                                   "Please try again.")
     threading.Thread(target=wrap, daemon=True).start()
+
+def _append_branding_outro(result, branding):
+    """可选品牌尾板：把 Logo 收尾页拼到成片之后（2026-10-30 客户专属视频需求）。
+
+    失败安全：任何异常都返回原 result 不变，成片照常交付；不传 logo /
+    logo 文件缺失也直接跳过——保证「不开专属视频」时行为零变化。"""
+    try:
+        if not isinstance(result, dict):
+            return result
+        main = result.get("file")
+        if not main or not os.path.isfile(main):
+            return result
+        b = branding or {}
+        if b.get("enabled") is False:   # 2026-11-02 Branding 开关：显式关闭则不追加尾板
+            return result
+        logo = b.get("logo")
+        if not logo or not os.path.isfile(logo):
+            return result
+        tagline = (b.get("tagline") or "")
+        from core import outro as _outro
+        final = main + ".brand.mp4"
+        ok = _outro.append_outro(main, logo, tagline, 30.0, final)
+        if ok and os.path.isfile(final):
+            # 原地覆盖 main：媒体 URL（result["video"]）保持不变
+            os.replace(final, main)
+            dur = _outro.duration_of_safe(final) or 0.0
+            result["secs"] = round(dur, 1) if dur else (result.get("secs", 0) + _outro.OUTRO_SECS)
+            result["branding"] = True
+            result["branding_tagline"] = tagline
+    except BaseException:
+        traceback.print_exc()
+    return result
 
 # ---------------- 项目存储 ----------------
 
@@ -467,6 +501,21 @@ _HOOK_MOVES = ("hook_scan", "hook_orbit")
 _HOOK_SEED_CACHE = {}
 
 
+def _spread_score(content):
+    """主体分散度 0..1：越高越像「多卡平铺」值得开场巡览，单主体接近 0。"""
+    if len(content) < 2:
+        return 0.0
+    boxes = [r["box"] for r in content]
+    cxs = [b[0] + b[2] / 2.0 for b in boxes]
+    cys = [b[1] + b[3] / 2.0 for b in boxes]
+    ws = [b[2] for b in boxes]
+    hs = [b[3] for b in boxes]
+    spread = (max(cxs) - min(cxs)) + (max(cys) - min(cys))
+    avg_dim = sum((w + h) / 2.0 for w, h in zip(ws, hs)) / max(1, len(boxes))
+    # 归一：分散总跨度 vs 平均框尺寸×件数；≥~0.4 视为平铺
+    return min(1.0, spread / max(1e-6, avg_dim * len(boxes)))
+
+
 def _hook_seed(src):
     """源图指纹：同一张图 → 同一个开场；换图才换（用户要求"同图固定、不同图不同"）。"""
     k = os.path.abspath(src)
@@ -618,17 +667,43 @@ def _fill_variety_shots(cp, src, W, H, OW, OH, n_extra):
     子区刻意错开位置（四角 + 中央）以制造取景变化；move 直接指定，各走
     card_pan 已调稳的实现（旋转边缘框自动降级为纯横滚，不晃）。
     """
+    # 2026-11-04：不再用写死的四角坐标。先真的找出这张图的主体（梯度能量 +
+    # 中心偏置），再围绕主体按「取景远近 × 少量偏移」展开变化 —— 同一主体，
+    # 不同景别/方向，既不会扫到空白，也不会和图片完全无关。
+    _sb = None
+    try:
+        _sb = cp.subject_box(src, W, H)
+    except BaseException:
+        _sb = None
+    if not _sb:
+        _sb = [0.15, 0.15, 0.70, 0.70]
+    _x, _y, _w, _h = [float(v) for v in _sb]
+    _cx, _cy = _x + _w / 2.0, _y + _h / 2.0
+
+    def _crop(f, dx=0.0, dy=0.0):
+        _nw = min(1.0, max(0.10, _w * f))
+        _nh = min(1.0, max(0.10, _h * f))
+        _nx = min(max(0.0, _cx + dx * _w - _nw / 2.0), max(0.0, 1.0 - _nw))
+        _ny = min(max(0.0, _cy + dy * _h - _nh / 2.0), max(0.0, 1.0 - _nh))
+        return [_nx, _ny, _nw, _nh]
+
     subs = [
-        ([0.08, 0.10, 0.40, 0.42], "pan"),     # 左上 · 平移 →
-        ([0.52, 0.12, 0.40, 0.42], "orbit"),   # 右上 · 旋转
-        ([0.10, 0.54, 0.40, 0.40], "pan_v"),   # 左下 · 平移 ↓
-        ([0.55, 0.58, 0.40, 0.40], "pull"),    # 右下 · 拉远
-        ([0.30, 0.30, 0.42, 0.42], "diag"),    # 中央 · 对角扫
+        (_crop(0.86), "pan"),            # 主体近景 · 平移 →
+        (_crop(0.64, dx=0.10), "orbit"),  # 再近一档 · 旋转
+        (_crop(0.92, dy=-0.08), "pan_v"), # 主体偏高 · 平移 ↓
+        (_crop(0.58, dx=-0.10), "pull"),  # 细节近景 · 拉远
+        (_crop(0.78, dy=0.08), "pan_rl"), # 主体偏低 · 平移 ←
+        # 2026-11-04 用户口径：Product Spotlight 只用平移（四向）/ 拉远 / 旋转，
+        # 补镜不再出对角扫（diag 代码保留，显式传 move 时才可用）。
     ]
     regions = []
+    _prev = None
     for i, (b, mv) in enumerate(subs[:max(1, n_extra)]):
+        if mv == _prev:
+            mv = "pan_rl" if mv == "pan" else "pan"
         regions.append({"box": list(b), "kind": "card", "label": "细节%d" % (i + 1),
                         "move": mv})
+        _prev = mv
     return cp.build_plan_from_regions(regions, OW, OH, W, H)
 
 
@@ -647,10 +722,19 @@ def _converge_duration(cp, plan, src, W, H, OW, OH, target_secs=15.0):
     if plan and _tot(plan) < target_secs - 0.5:
         need = int((target_secs - _tot(plan)) // 2.3) + 1
         extra = _fill_variety_shots(cp, src, W, H, OW, OH, max(1, min(need, 4)))
+        # 2026-11-04：补镜必须插在「收尾拉远」之前 —— 直接 append 会让拉远出现在
+        # 中段（实测单图 15s 成片第 4 镜就拉远，后面还在动，观感断裂）。
+        _ins = len(plan)
+        for _j in range(len(plan) - 1, -1, -1):
+            if plan[_j].get("kind") == "reveal":
+                _ins = _j
+            else:
+                break
         for m in extra:
             if str(m["kind"]).startswith("hook") or m["kind"] == "reveal":
                 continue
-            plan.append(m)
+            plan.insert(_ins, m)
+            _ins += 1
     # 2) 拉伸到 target（单镜封顶 4.5s）
     if plan and _tot(plan) < target_secs - 0.05:
         for _ in range(8):
@@ -909,6 +993,10 @@ def _auto_card_pan_plan(cp, src, proj, cfg, W, H, OW, OH, target_secs=None, forc
                     r["focus"] = fpt
 
         content = cards + crafts
+        # 2026-11-03 用户口径：**工艺微距镜头整个去掉，不保留**——craft（烫金/
+        # 雕刻字微距推近）不再进片。识别出的 craft 项直接丢弃；含金徽记的外壳
+        # （1.5 步曾把 kind 改成 craft）也随之退回整件外壳展示。
+        content = [r for r in content if r.get("kind") != "craft"]
         # 2026-10-29 用户口径：自动运镜只保留「旋转 / 平移（多方向）/ 拉远」。
         # 一张图没检出工艺时，把第一个小卡（card）或内页（inner）显式指定为旋转
         # 展示（原轮转可能给它分到拉远，成片就没有细节展示了）；只指定一个，
@@ -925,35 +1013,66 @@ def _auto_card_pan_plan(cp, src, proj, cfg, W, H, OW, OH, target_secs=None, forc
         content = _cap_details(content)
         _CARD_PAN_CACHE[key] = content
     if not content:
-        plan = cp.build_synthetic_variety(W, H, OW, OH)
-        # 2026-10-27：兜底微距窗重对焦（金色聚类质心/细节密度），治「切重点
-        # 细节切到正文/道具」——固定启发式窗不看图，是最常见的偏靶原因。
-        _synthetic_macro_recenter(cp, plan, src, W, H, OW, OH)
+        # 2026-11-04：识别为空时改走「看图像特征」的自适应兜底（取代写死坐标的
+        # build_synthetic_variety），真按这张图哪里有内容给运镜；仍失败才回退。
+        plan = cp._plan_from_image_features(src, W, H, OW, OH)
+        if plan is None:
+            plan = cp.build_synthetic_variety(W, H, OW, OH)
+            # 2026-11-03 用户口径：兜底 plan 里的 craft 微距镜也一并去掉（synthetic
+            # subs 含 craft→macro 项），与主路径「不保留工艺微距」保持一致。
+            plan = [m for m in plan if str(m.get("kind")) != "macro"]
+            _synthetic_macro_recenter(cp, plan, src, W, H, OW, OH)
         return plan
-    # 开场（2026-10-29 用户口径：「一开始要各种平移扫描，展示所有的卡片，然后再
-    # 进行小卡内页等展示」）：
-    #   · 默认 = 两段巡览扫描（tour_h 横向满幅 + tour_v 斜向回扫），行程按**全部
-    #     卡片并集框**计算，保证每件卡片都亮过相，再进细节镜头；
-    #   · force_hook 显式指定时仍用旧钩子（hook_scan / hook_orbit），不影响其他台。
+    # 内容并集框（多卡平铺开场巡览用）
+    _bx0 = min(float(r["box"][0]) for r in content)
+    _by0 = min(float(r["box"][1]) for r in content)
+    _bx1 = max(float(r["box"][0]) + float(r["box"][2]) for r in content)
+    _by1 = max(float(r["box"][1]) + float(r["box"][3]) for r in content)
+    _bx0, _by0 = max(0.0, _bx0), max(0.0, _by0)
+    _ub = [_bx0, _by0,
+           max(1e-3, min(1.0, _bx1) - _bx0),
+           max(1e-3, min(1.0, _by1) - _by0)]
+    # 开场（2026-11-04 改成内容自适应，不再写死「双巡览+拉远」）：
+    #   · force_hook 显式指定（模版视频等）→ 固定用该手法；
+    #   · 多卡平铺（≥2 且分散度达标）→ 开场巡览扫描（张数 ≥3 时两段），把平铺卡片
+    #     依次带进画面，再进细节；
+    #   · 单主体 / 几件紧挨 → 不开场巡览，直接进主体展示（扫空白没意义）。
     if force_hook in _HOOK_MOVES:
         tour = [_pick_hook(content, OW, OH, src, force=force_hook)]
         detail_max = MAX_DETAIL_SHOTS
     else:
-        _bx0 = min(float(r["box"][0]) for r in content)
-        _by0 = min(float(r["box"][1]) for r in content)
-        _bx1 = max(float(r["box"][0]) + float(r["box"][2]) for r in content)
-        _by1 = max(float(r["box"][1]) + float(r["box"][3]) for r in content)
-        _bx0, _by0 = max(0.0, _bx0), max(0.0, _by0)
-        _ub = [_bx0, _by0,
-               max(1e-3, min(1.0, _bx1) - _bx0),
-               max(1e-3, min(1.0, _by1) - _by0)]
-        tour = [{"box": list(_ub), "kind": "hook", "label": _HOOK_LABEL, "move": "tour_h"},
-                {"box": list(_ub), "kind": "hook", "label": _HOOK_LABEL, "move": "tour_v"}]
-        # 两段巡览已占 ~6s，细节镜头收到 3 个，保证每镜有足够时长走完行程
-        # （镜头太多会把每镜压到 1.6s 下限，位移被速度红线裁成"微动"，又变卡）。
-        detail_max = 3
+        _sep = _spread_score(content)
+        if len(content) >= 2 and _sep >= 0.40:
+            tour = [{"box": list(_ub), "kind": "hook", "label": _HOOK_LABEL, "move": "tour_h"}]
+            if len(content) >= 3:
+                tour.append({"box": list(_ub), "kind": "hook",
+                             "label": _HOOK_LABEL, "move": "tour_v"})
+        else:
+            tour = []          # 单主体：跳过写死的开场巡览，直接展示
+        detail_max = MAX_DETAIL_SHOTS
     # 截断走 _cap_details：工艺（烫金/雕刻字）保留席位，不会因为排第 5 被砍
     _detail = content if force_hook in _HOOK_MOVES else _cap_details(content, detail_max)
+    # 2026-11-04：单主体（整张图只识别出一件、且没有开场巡览）时，成片只剩
+    # 「一镜 + 收尾拉远」，线上实测两张图连着两镜都是「轨道旋转」，观感单调。
+    # 这里从**同一识别框**派生第二镜：取景收紧到 0.74 倍（同一主体的近景，不是
+    # 另画坐标），运镜由 _choose_move 的 prev 去重自然错开（orbit → pan）。
+    if not tour and len(_detail) == 1:
+        _b = [float(v) for v in _detail[0]["box"]]
+        _dcx = _b[0] + _b[2] / 2.0
+        _dcy = _b[1] + _b[3] / 2.0
+        _nw = min(1.0, max(0.10, _b[2] * 0.74))
+        _nh = min(1.0, max(0.10, _b[3] * 0.74))
+        _nx = min(max(0.0, _dcx - _nw / 2.0), max(0.0, 1.0 - _nw))
+        _ny = min(max(0.0, _dcy - _nh / 2.0), max(0.0, 1.0 - _nh))
+        _detail.append({"box": [_nx, _ny, _nw, _nh],
+                        "kind": _detail[0].get("kind", "card"),
+                        "label": _detail[0].get("label", ""),
+                        "fill": 0.95})
+    # 每个细节区按几何+构图选运镜（取代固定 kind→move 表），相邻方向去重防单调
+    _prev = tour[-1]["move"] if tour else None
+    for _i, r in enumerate(_detail):
+        r["move"] = cp._choose_move(r["box"], _i, _prev)
+        _prev = r["move"]
     regions = tour + _detail
     return cp.build_plan_from_regions(regions, OW, OH, W, H, target_secs=target_secs)
 
@@ -1588,7 +1707,8 @@ class Handler(SimpleHTTPRequestHandler):
                 pid = q["project"][0]
                 name = safe_name(q.get("name", ["photo.jpg"])[0])
                 kind = q.get("kind", ["upload"])[0]
-                sub = {"upload": "uploads", "storyboard": "storyboards"}.get(kind, "uploads")
+                sub = {"upload": "uploads", "storyboard": "storyboards",
+                       "brand": "branding"}.get(kind, "uploads")
                 d = os.path.join(project_path(pid), sub)
                 os.makedirs(d, exist_ok=True)
                 _, ext = os.path.splitext(name)
@@ -1601,8 +1721,23 @@ class Handler(SimpleHTTPRequestHandler):
                     f.write(data)
                 proj = load_project(pid)
                 entry = {"path": fp, "file": fname, "fname": name}
+                # 2026-11-04 用户定稿：上传即预计算「单图色彩画像」，落库到
+                # entry["color_profile"]。出片阶段只对这些画像做跨图投票，
+                # 不再把所有像素混在一起重新聚类 —— 识别结果确定、可复用，
+                # 不会因为多/少一张图或一张偏色图而整体跳色。
+                # 绝不让它影响上传本身（红线：兜 BaseException）。
+                if kind not in ("storyboard", "brand"):
+                    try:
+                        from core import collage_palette as _cp
+                        _bgr = _cp._imread_bgr(fp)
+                        entry["color_profile"] = _cp.image_color_profile(_bgr)
+                    except BaseException:
+                        traceback.print_exc()
                 if kind == "storyboard":
                     proj["storyboards"].append(entry)
+                elif kind == "brand":
+                    # 品牌 logo：独立目录 + 只记最新一份，绝不混进照片 uploads
+                    proj["brand_logo"] = entry
                 else:
                     proj["uploads"].append(entry)
                 save_project(proj)
@@ -1985,6 +2120,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if g:
                     return self.send_json({"error": g["error"]}, g["code"])
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 jid = new_job("cm_render")
                 proj = load_project(body["project"])
                 # 2026-10-10：成片画幅由界面选（9:16 / 1:1）；非法值回落默认，绝不因脏入参 500。
@@ -2055,7 +2191,7 @@ class Handler(SimpleHTTPRequestHandler):
                                 "layout": meta["layout"], "secs": meta["secs"],
                                 "label": meta["label"], "moves": meta["moves"],
                                 "shots": meta["shots"]}
-                    run_job(jid, work)
+                    run_job(jid, work, branding=branding)
                     return self.send_json({"job": jid})
                 # ---- 单图模式（原有路径）----
                 src = body.get("src")
@@ -2114,7 +2250,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "reason": meta["reason"], "secs": meta["secs"],
                             "label": meta["label"], "moves": meta.get("moves", []),
                             "shots": meta.get("shots", [])}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/bgm/upload":
@@ -2203,6 +2339,7 @@ class Handler(SimpleHTTPRequestHandler):
                 captions(布尔), voiceover(布尔)}
                 """
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 src = body.get("src")
                 # 2026-10-27 多图支持：srcs 列表（1~8 张，Product Spotlight 不再
@@ -2247,66 +2384,52 @@ class Handler(SimpleHTTPRequestHandler):
                     out = os.path.join(out_dir, "cardpan_%s_%s.mp4" % (ratio, stamp))
                     strip = out.replace(".mp4", "_strip.jpg")
                     if len(_srcs_in) > 1 and not regions and plan_name != "0W5A0561":
-                        # ---- 多图（2026-10-27）：每张独立「识别→编排→渲染」，
-                        # compose.concat_segments 硬切拼接（与 Collection Showcase
-                        # 同一助手，自动同画幅归一）。第 1 张保留开场钩子、最后 1 张
-                        # 保留收尾拉远，中间张只出内容镜头；每张目标 8s——总时长随
-                        # 图数增长（2026-10-26 红线）。最多 8 张。
-                        _srcs = _srcs_in[:8]
-                        segs, tags, secs_sum = [], [], 0.0
-                        for i, s in enumerate(_srcs):
-                            job_progress(jid, 5 + int(70 * i / max(1, len(_srcs))), 100,
-                                         "Rendering photo %d of %d" % (i + 1, len(_srcs)))
-                            img_i = cv2.imdecode(np.fromfile(s, dtype=np.uint8), cv2.IMREAD_COLOR)
-                            if img_i is None:
-                                raise FileNotFoundError(s)
-                            from core.imgproc import normalize_luma
-                            img_i = normalize_luma(img_i)   # 2026-10-27 亮度归一
-                            H_i, W_i = img_i.shape[:2]
-                            plan_i = _auto_card_pan_plan(cp, s, proj, cfg, W_i, H_i, OW, OH,
-                                                         target_secs=8.0)
-                            if i > 0:
-                                plan_i = [m for m in plan_i
-                                          if not str(m["kind"]).startswith("hook")
-                                          and m["kind"] != "tour"]
-                            else:
-                                # 多图拼接只在首段保留一段巡览（8s 目标装不下两段）
-                                _tr = [m for m in plan_i if m["kind"] == "tour"]
-                                for _m in _tr[1:]:
-                                    plan_i.remove(_m)
-                            if i < len(_srcs) - 1:
-                                plan_i = [m for m in plan_i if m["kind"] != "reveal"]
-                            if not plan_i:
-                                plan_i = _auto_card_pan_plan(cp, s, proj, cfg, W_i, H_i,
-                                                             OW, OH, target_secs=8.0)
-                            seg_i = os.path.join(out_dir, "cardpan_seg%d_%s.mp4" % (i, stamp))
-                            cp.card_pan_render(img_i, plan_i, seg_i, ratio=ratio, fps=fps,
-                                               strip_path=strip if i == 0 else None)
-                            segs.append(seg_i)
-                            tags += [m.get("tag", m["kind"]) for m in plan_i]
-                            secs_sum += sum(m["dur"] for m in plan_i) \
-                                - cp.XFADE * max(0, len(plan_i) - 1)
-                        compose.concat_segments(segs, out, size=(OW, OH))
-                        plan = [{"kind": "multi", "dur": 0, "tag": t} for t in tags]
-                        secs = round(secs_sum, 1)
+                        # ---- 多图（2026-11-04 起：2.5D 运镜，零 AI）——每张 ~8s
+                        # （3 个不重复运镜），相邻图首家族不重样，硬切衔接（与
+                        # 2.5D 参考片一致）。最多 8 张。引擎复用 Decor Showcase 的
+                        # core.decor_cam（本地深度视差 + cv2.remap），不调火山识图。
+                        from core import card_pan_25d as _c25
+
+                        def _c25prog(pct, _tot, msg=""):
+                            job_progress(jid, int(pct), 100, msg or "Rendering")
+
+                        res25 = _c25.render_25d(_srcs_in, out, ratio=ratio, fps=fps,
+                                                per_image_secs=8.0, progress=_c25prog)
+                        plan = [{"kind": m["move"], "dur": m["dur"], "tag": m["tag"]}
+                                for m in res25["moves"]]
+                        secs = res25["secs"]
                     else:
                         img = cv2.imdecode(np.fromfile(src, dtype=np.uint8), cv2.IMREAD_COLOR)
                         if img is None:
                             raise FileNotFoundError(src)
                         H, W = img.shape[:2]
                         if regions:
+                            # 手动框选（后台/调试用）：仍走 card_pan 原渲染
                             plan = cp.build_plan_from_regions([dict(r) for r in regions], OW, OH, W, H)
+                            # 时长收敛：内容稀疏时补多样运镜镜头，整体拉到 ~target_secs 并压回 15s 内
+                            plan = _converge_duration(cp, plan, src, W, H, OW, OH,
+                                                      target_secs=(_tsec or 15.0))
+                            cp.card_pan_render(img, plan, out, ratio=ratio, fps=fps, strip_path=strip)
+                            secs = round(sum(m["dur"] for m in plan) - cp.XFADE * max(0, len(plan) - 1), 1)
                         elif plan_name == "0W5A0561":
                             plan = cp.plan_0W5A0561(W, H, OW, OH)
+                            cp.card_pan_render(img, plan, out, ratio=ratio, fps=fps, strip_path=strip)
+                            secs = round(sum(m["dur"] for m in plan) - cp.XFADE * max(0, len(plan) - 1), 1)
                         else:
-                            plan = _auto_card_pan_plan(cp, src, proj, cfg, W, H, OW, OH,
-                                                       target_secs=_tsec,
-                                                       force_hook=body.get("hook"))
-                        # 时长收敛：内容稀疏时补多样运镜镜头，整体拉到 ~target_secs 并压回 15s 内
-                        plan = _converge_duration(cp, plan, src, W, H, OW, OH,
-                                                  target_secs=(_tsec or 15.0))
-                        cp.card_pan_render(img, plan, out, ratio=ratio, fps=fps, strip_path=strip)
-                        secs = round(sum(m["dur"] for m in plan) - cp.XFADE * max(0, len(plan) - 1), 1)
+                            # ---- 2026-11-04 用户定稿：Product Spotlight 默认改走
+                            # 2.5D 运镜（core.card_pan_25d，复用 Decor Showcase 的
+                            # decor_cam 引擎），全程本地像素搬移 + 深度视差，
+                            # 零 AI / 零算力调用。
+                            from core import card_pan_25d as _c25
+
+                            def _c25prog(pct, _tot, msg=""):
+                                job_progress(jid, int(pct), 100, msg or "Rendering")
+
+                            res25 = _c25.render_25d([src], out, ratio=ratio, fps=fps,
+                                                    target_secs=_tsec, progress=_c25prog)
+                            plan = [{"kind": m["move"], "dur": m["dur"], "tag": m["tag"]}
+                                    for m in res25["moves"]]
+                            secs = res25["secs"]
                     # BGM：渲染器只出画面（成片会是无声的）——在这里补混音。
                     # 用户 2026-10-26 红线：模版用各自固定的 BGM，不随机生成。
                     # 2026-10-28 换曲（用户指定）：Product Spotlight 固定配
@@ -2384,8 +2507,11 @@ class Handler(SimpleHTTPRequestHandler):
                         strip_url = "/media/cardpan/%s" % base.replace(".mp4", "_strip.jpg")
                     return {"video": video, "strip": strip_url, "file": out, "secs": secs,
                             "shots": [m.get("tag", m["kind"]) for m in plan],
+                            # 诊断字段（2026-11-04）：便于确认线上跑的是哪版编排逻辑
+                            "engine": "cardpan-25d-2026-11-04",
+                            "durs": [round(float(m.get("dur") or 0), 2) for m in plan],
                             "captions": bool(cap_meta), "voiceover": bool(vo_meta)}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/multi-suite":
@@ -2412,6 +2538,7 @@ class Handler(SimpleHTTPRequestHandler):
                 captions(布尔), voiceover(布尔)}
                 """
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -2506,7 +2633,7 @@ class Handler(SimpleHTTPRequestHandler):
                                         or bool([x for x in labels if str(x or "").strip()]),
                             "voiceover": bool(vo_meta),
                             "ratio": res.get("ratio")}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/scroll-gallery":
@@ -2528,6 +2655,7 @@ class Handler(SimpleHTTPRequestHandler):
                 captions(布尔), voiceover(布尔)}
                 """
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -2625,7 +2753,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(cap_meta), "voiceover": bool(vo_meta)}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/four-grid":
@@ -2633,7 +2761,7 @@ class Handler(SimpleHTTPRequestHandler):
 
                 与 /api/scroll-gallery（Colour Inspiration）、/api/multi-suite（Collection Showcase）
                 **完全独立**：管线在 core.four_grid（前 4 张做 2×2 无缝铺满 + 错峰淡入，再定格 1s，
-                然后全部 N 张依次单图快剪、轻微推近；中央可选叠衬线标题 + 花体副标题，无滤镜调色），
+                然后全部 N 张依次单图硬切展示（不运镜，仅切换，每张停留 1.2~1.8s）；
                 不动其它模版的编排。
 
                 入参(JSON)：srcs 图片路径列表(必填，≥4 张；前 4 张做四宫格，全部 N 张做单图快切) /
@@ -2650,6 +2778,7 @@ class Handler(SimpleHTTPRequestHandler):
                 captions(布尔), voiceover(布尔)}
                 """
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -2737,7 +2866,149 @@ class Handler(SimpleHTTPRequestHandler):
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(show_text and (title.strip() or subtitle.strip())),
                             "voiceover": bool(vo_meta)}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
+                return self.send_json({"job": jid})
+
+            if p == "/api/collage-palette":
+                """婚礼 Look 拼贴 + 自动主色识别模版（Wedding Look Collage）。
+
+                客户上传 3-12 张照片 -> 服务端自动 k-means 识别主色调，渲染成
+                一排「颜色色块」，再双列全出血拼贴开场 + 逐张单图展示。配乐默认
+                color trend（用户 2026-11-02 指定）。
+
+                与 four_grid / scroll_gallery 等 **完全独立**：管线在
+                core.collage_palette（识别主色 + 双列拼贴 + 单图）。
+
+                入参(JSON)：srcs 图片路径列表(必填，≥3 张；开场拼贴取全部、单图段
+                也展示全部) / title 中央 kicker 衬线小字(可选) / subtitle 中央 script
+                花体大标题(可选) / show_text false 则完全不叠文字(默认 false＝opt-in；
+                step4「Add Captions」关闭时传 false；色块始终渲染——它是本模版核心
+                识别产物) / project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
+                silent true 则跳过配乐（默认配 color trend） /
+                voiceover {on, selling, cta} 三段式口播(可选，step4 勾选)。
+                返回：异步 job，result 含 {video, file, secs, images, ratio,
+                captions(布尔), voiceover(布尔), palette}
+                """
+                body = self.read_body_json()
+                branding = body.get("branding") or None
+                pid = body.get("project")
+                srcs = [s for s in (body.get("srcs") or []) if s]
+                srcs = [s for s in srcs if os.path.isfile(s)]
+                if len(srcs) < 3:
+                    return self.send_json(
+                        {"error": "This template needs 3 to 12 photos — upload at least 3 stationery photos first"}, 400)
+                from core.card_pan import norm_ratio as _norm_ratio
+                ratio = _norm_ratio(body.get("ratio"))
+                fps = int(body.get("fps") or 30)
+                show_text = body.get("show_text", False)
+                if isinstance(show_text, str):
+                    show_text = show_text.lower() not in ("0", "false", "no")
+                title = str(body.get("title") or "")
+                # 2026-11-04 用户口径：副标题留空 → 用识别出的色板名自动起名
+                # （原来默认写死 "Terracotta Color"，导致客户上传任何色系
+                # 都显示同一句文字）。这里不再兜固定文案。
+                subtitle = str(body.get("subtitle") or "")
+                # 2026-11-04 稳定性改造：主题族取「上传时逐图画像」的跨图投票，
+                # 而不是出片时把所有像素重新聚类。没有画像（老会话）→ None
+                # 交给 render 现场投票，行为与旧版一致。
+                fam_forced = None
+                try:
+                    if pid:
+                        from core import collage_palette as _cp0
+                        _pj = load_project(pid)
+                        _pmap = {e.get("path"): e for e in (_pj.get("uploads") or [])}
+                        _profs = [(_pmap.get(s) or {}).get("color_profile") for s in srcs]
+                        _have = [p for p in _profs if isinstance(p, dict)]
+                        if _have:
+                            fam_forced = _cp0.pick_family(_have)
+                except BaseException:
+                    traceback.print_exc()
+                    fam_forced = None
+                jid = new_job("collage_palette")
+
+                def work():
+                    from core import collage_palette as cp
+                    out_dir = os.path.join(project_path(pid) if pid else DATA, "collagepalette")
+                    os.makedirs(out_dir, exist_ok=True)
+                    stamp = time.strftime("%m%d%H%M%S") + uuid.uuid4().hex[:3]
+                    out = os.path.join(out_dir, "collage_%s_%s.mp4" % (ratio, stamp))
+
+                    def prog(done, total_, msg=""):
+                        job_progress(jid, int(done), int(total_ or 100), msg)
+
+                    res = cp.render_collage_palette(srcs, out, ratio=ratio, fps=fps,
+                                                    title=title, subtitle=subtitle,
+                                                    show_text=show_text, progress=prog,
+                                                    font=body.get("font"),
+                                                    forced_family=fam_forced,
+                                                    cfg=dict(CONFIG.get("storyboard_api") or {}))
+                    secs = res["secs"]
+                    # 2026-11-04 诊断辅助：把逐图画像带回结果，客户反馈
+                    # 色系识别不对时能直接看到每张图判了什么族。
+                    try:
+                        res["color_profiles"] = [
+                            {"src": s, "profile": pr} for s, pr in zip(srcs, _profs)]
+                    except BaseException:
+                        pass
+                    # BGM：用户 2026-11-02 指定 color trend；失败不影响画面交付。
+                    if not body.get("silent"):
+                        try:
+                            _bf = _bgm_pick(body, "color trend.mp3")
+                            if os.path.isfile(_bf):
+                                _mix = out + ".mix.mp4"
+                                job_progress(jid, 92, 100, "Adding music")
+                                compose.mix_bgm(out, _bf, _mix, gain_db=-4.0,
+                                                fade_in=1.0, fade_out=2.2)
+                                if os.path.isfile(_mix) and os.path.getsize(_mix) > 1024:
+                                    os.replace(_mix, out)
+                        except BaseException:
+                            traceback.print_exc()
+                    _vo = body.get("voiceover") or {}
+                    vo_meta = None
+                    if _vo.get("on"):
+                        try:
+                            from core import voiceover as _volib
+                            _cfg = dict(CONFIG.get("storyboard_api") or {})
+
+                            def _vprog(done, total_, msg=""):
+                                job_progress(jid, 92 + int(done) * 8 // max(1, int(total_ or 100)),
+                                             100, msg or "Adding voiceover")
+
+                            _vo_out = out + ".vo.mp4"
+                            vo_meta = _volib.voiceover_on_rendered(
+                                out, _vo_out, srcs, 0.0, secs, secs, [],
+                                str(_vo.get("selling") or "").strip(),
+                                str(_vo.get("cta") or "view").strip(),
+                                _cfg, progress=_vprog, fallback_bgm=_bf,
+                                beats=_volib.three_act_beats(secs),
+                                sub_pos="lower")
+                            if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
+                                os.replace(_vo_out, out)
+                        except BaseException:
+                            traceback.print_exc()
+                    base = os.path.basename(out)
+                    if pid:
+                        p2 = load_project(pid)
+                        p2.setdefault("collagepalette", []).append(
+                            {"file": out, "name": "Wedding Look %ss" % secs,
+                             "kind": "collagepalette", "dur": secs})
+                        save_project(p2)
+                        video = "/media/%s/collagepalette/%s" % (pid, base)
+                    else:
+                        video = "/media/collagepalette/%s" % base
+                    return {"video": video, "file": out, "secs": secs,
+                            "images": res["images"], "ratio": res.get("ratio"),
+                            "captions": bool(show_text and (title.strip() or subtitle.strip())),
+                            "voiceover": bool(vo_meta),
+                            "palette": res.get("palette"),
+                            "palette_name": res.get("palette_name"),
+                            "palette_family": res.get("family"),
+                            "ai_used": res.get("ai_used"),
+                            "palette_ai_name": res.get("palette_ai_name"),
+                            "palette_ai_family": res.get("palette_ai_family"),
+                            "palette_ai_note": res.get("palette_ai_note"),
+                            "color_profiles": res.get("color_profiles")}
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/three-screen":
@@ -2767,6 +3038,7 @@ class Handler(SimpleHTTPRequestHandler):
                 captions(布尔), voiceover(布尔)}
                 """
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -2864,7 +3136,140 @@ class Handler(SimpleHTTPRequestHandler):
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(cap_text),
                             "voiceover": bool(vo_meta)}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
+                return self.send_json({"job": jid})
+
+            if p == "/api/caption-suggest":
+                """按上传图片给各模版建议一段屏幕文字（2026-11-03，step4 Captions
+                自动预填用）。只做建议、绝不抛错：失败一律回落模版默认文案。
+                入参(JSON)：pipeline 模版管线名 / srcs 图片绝对路径列表。
+                返回：{line, title, sub}（用不到的键为空串）。
+                  · collage_palette / four_grid → 本地取色起配色名（零 AI），
+                    如 "Terracotta & Rust"（参考模版自身文字）；
+                  · 无原生文字的模版（card_pan/scroll_gallery/three_screen/
+                    decor_show）→ 视觉模型按图起稿一句 ≤10 词文案，AI 不可用
+                    或额度超限时回落 CAPTION_FALLBACK；
+                  · 其余模版文案为模版固定默认（前端已预填），不耗 AI 额度。
+                """
+                body = self.read_body_json()
+                pipe = str(body.get("pipeline") or "")
+                srcs = [s for s in (body.get("srcs") or []) if s and os.path.isfile(s)]
+                out = {"line": "", "title": "", "sub": ""}
+                if pipe in ("collage_palette", "four_grid") and srcs:
+                    try:
+                        from core import collage_palette as _cp
+                        _imgs = [_cp._imread_bgr(s) for s in srcs[:12]]
+                        # 2026-11-04：与出片阶段同一口径——先逐图画像再跨图
+                        # 投票定族，保证「建议文字」与成片色块/色板名一致。
+                        _profs = [_cp.image_color_profile(im) for im in _imgs]
+                        _fam = _cp.pick_family(_profs)
+                        out["sub"] = _cp.name_palette(
+                            _cp.detect_palette(_imgs, n=4, forced_family=_fam))
+                        out["title"] = ("Weddings 2027" if pipe == "collage_palette"
+                                        else "WEDDING TREND")
+                    except BaseException:
+                        traceback.print_exc()
+                elif pipe in ("card_pan", "scroll_gallery", "three_screen",
+                              "decor_show") and srcs:
+                    out["line"] = "Wedding invitations, crafted with care"  # = voiceover.CAPTION_FALLBACK
+                    if not self._ai_gate("caption"):
+                        try:
+                            from core import voiceover as _volib
+                            _cfg = dict(CONFIG.get("storyboard_api") or {})
+                            out["line"] = _volib.draft_caption_line(_cfg, srcs, timeout=25)
+                        except BaseException:
+                            traceback.print_exc()
+                return self.send_json(out)
+
+            if p == "/api/decor-show":
+                """装饰类现场展示模版（Decor Showcase）—— N 张装饰/请柬周边图 ->
+                逐张满幅运镜展示（由 image_motion 按内容自动匹配合适运镜），硬切衔接；
+                无口播、无字幕、无四宫格。
+
+                与 /api/four-grid（Grid Showcase，仅切换不运镜）等 **完全独立**：
+                管线在 core.decor_show（每张 3s 满幅运镜，BGM 由 server 混），不动其它模版。
+
+                入参(JSON)：srcs 图片路径列表(必填，3~12 张) /
+                project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
+                silent true 则跳过配乐（默认配 Wedding_01_657 婚礼竖琴向 BGM，2026-11-02 指定；
+                  不与其他模版 BGM 重复） /
+                返回：异步 job，result 含 {video, file, secs, images, ratio}
+                """
+                body = self.read_body_json()
+                branding = body.get("branding") or None
+                pid = body.get("project")
+                srcs = [s for s in (body.get("srcs") or []) if s]
+                srcs = [s for s in srcs if os.path.isfile(s)]
+                if len(srcs) < 3:
+                    return self.send_json(
+                        {"error": "This template needs 3 to 12 photos — upload at least 3 photos first"}, 400)
+                if len(srcs) > 12:
+                    srcs = srcs[:12]
+                from core.card_pan import norm_ratio as _norm_ratio
+                ratio = _norm_ratio(body.get("ratio"))
+                fps = int(body.get("fps") or 30)
+                jid = new_job("decor_show")
+
+                def work():
+                    from core import decor_show as ds
+                    out_dir = os.path.join(project_path(pid) if pid else DATA, "decorshow")
+                    os.makedirs(out_dir, exist_ok=True)
+                    stamp = time.strftime("%m%d%H%M%S") + uuid.uuid4().hex[:3]
+                    out = os.path.join(out_dir, "decor_%s_%s.mp4" % (ratio, stamp))
+
+                    def prog(done, total_, msg=""):
+                        job_progress(jid, int(done), int(total_ or 100), msg)
+
+                    res = ds.render_decor_show(srcs, out, ratio=ratio, fps=fps,
+                                               progress=prog)
+                    secs = res["secs"]
+                    # captions（2026-11-03）：本模版无原生文字，captions 开时烧一行
+                    # 产品介绍于中上方；文字留空则按图起稿（AI 失败回落默认句）。
+                    _cap = body.get("captions") or {}
+                    cap_meta = None
+                    if _cap.get("on"):
+                        try:
+                            from core import voiceover as _volib
+                            _line = str(_cap.get("text") or "").strip()
+                            if not _line:
+                                _cfg = dict(CONFIG.get("storyboard_api") or {})
+                                _line = _volib.draft_caption_line(_cfg, srcs)
+                            _cap_out = out + ".cap.mp4"
+                            job_progress(jid, 88, 100, "Burning on-screen text")
+                            cap_meta = _volib.apply_caption(out, _cap_out, _line,
+                                                            sub_pos="upper",
+                                                            font=_cap.get("font"))
+                            if os.path.isfile(_cap_out) and os.path.getsize(_cap_out) > 1024:
+                                os.replace(_cap_out, out)
+                        except BaseException:
+                            traceback.print_exc()
+                    # BGM：2026-11-02 指定 Wedding_01_657（婚礼竖琴向，不与其他模版重复）；
+                    # 失败不影响画面交付。
+                    if not body.get("silent"):
+                        try:
+                            _bf = _bgm_pick(body, "Wedding_01_657.mp3")
+                            if os.path.isfile(_bf):
+                                _mix = out + ".mix.mp4"
+                                job_progress(jid, 92, 100, "Adding music")
+                                compose.mix_bgm(out, _bf, _mix, gain_db=-4.0,
+                                                fade_in=1.0, fade_out=2.2)
+                                if os.path.isfile(_mix) and os.path.getsize(_mix) > 1024:
+                                    os.replace(_mix, out)
+                        except BaseException:
+                            traceback.print_exc()
+                    base = os.path.basename(out)
+                    if pid:
+                        p2 = load_project(pid)
+                        p2.setdefault("decorshow", []).append(
+                            {"file": out, "name": "Decor %ss" % secs,
+                             "kind": "decorshow", "dur": secs})
+                        save_project(p2)
+                        video = "/media/%s/decorshow/%s" % (pid, base)
+                    else:
+                        video = "/media/decorshow/%s" % base
+                    return {"video": video, "file": out, "secs": secs,
+                            "images": res["images"], "ratio": res.get("ratio")}
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/top5":
@@ -2873,6 +3278,7 @@ class Handler(SimpleHTTPRequestHandler):
                 （num 留空自动倒数 01..N）；BGM 可选（默认 user_paulyudin）。
                 与 /api/three-screen 等 **完全独立**：管线在 core.top5（零 AI 依赖）。"""
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -2913,6 +3319,31 @@ class Handler(SimpleHTTPRequestHandler):
                                          ratio=ratio, fps=fps, progress=prog,
                                          title_main=title_main, title_sub=title_sub)
                     secs = res["secs"]
+                    # 口播后处理（step4 Captions & Voiceover 可选）：三段式配音+字幕。
+                    # 字幕烧中下（sub_pos="lower"）；任何失败只打印，仍交付无口播成片。
+                    _vo = body.get("voiceover") or {}
+                    vo_meta = None
+                    if _vo.get("on"):
+                        try:
+                            from core import voiceover as _volib
+                            _cfg = dict(CONFIG.get("storyboard_api") or {})
+
+                            def _vprog(done, total_, msg=""):
+                                job_progress(jid, 92 + int(done) * 8 // max(1, int(total_ or 100)),
+                                             100, msg or "Adding voiceover")
+
+                            _vo_out = out + ".vo.mp4"
+                            vo_meta = _volib.voiceover_on_rendered(
+                                out, _vo_out, srcs, 0.0, secs, secs, [],
+                                str(_vo.get("selling") or "").strip(),
+                                str(_vo.get("cta") or "view").strip(),
+                                _cfg, progress=_vprog, fallback_bgm=_bf,
+                                beats=_volib.three_act_beats(secs),
+                                sub_pos="lower")
+                            if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
+                                os.replace(_vo_out, out)
+                        except BaseException:
+                            traceback.print_exc()
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -2925,8 +3356,9 @@ class Handler(SimpleHTTPRequestHandler):
                         video = "/media/top5/%s" % base
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
-                            "moves": res.get("moves")}
-                run_job(jid, work)
+                            "moves": res.get("moves"),
+                            "voiceover": bool(vo_meta)}
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/carousel":
@@ -2938,6 +3370,7 @@ class Handler(SimpleHTTPRequestHandler):
                 Explore Now + 圆形箭头徽章)。
                 与其它模版**完全独立**：管线在 core.carousel（零 AI 依赖）。"""
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -2978,6 +3411,31 @@ class Handler(SimpleHTTPRequestHandler):
                                               title1=title1, title2=title2,
                                               footer=footer)
                     secs = res["secs"]
+                    # 口播后处理（step4 Captions & Voiceover 可选）：三段式配音+字幕。
+                    # 字幕烧中下（sub_pos="lower"）；任何失败只打印，仍交付无口播成片。
+                    _vo = body.get("voiceover") or {}
+                    vo_meta = None
+                    if _vo.get("on"):
+                        try:
+                            from core import voiceover as _volib
+                            _cfg = dict(CONFIG.get("storyboard_api") or {})
+
+                            def _vprog(done, total_, msg=""):
+                                job_progress(jid, 92 + int(done) * 8 // max(1, int(total_ or 100)),
+                                             100, msg or "Adding voiceover")
+
+                            _vo_out = out + ".vo.mp4"
+                            vo_meta = _volib.voiceover_on_rendered(
+                                out, _vo_out, srcs, 0.0, secs, secs, [],
+                                str(_vo.get("selling") or "").strip(),
+                                str(_vo.get("cta") or "view").strip(),
+                                _cfg, progress=_vprog, fallback_bgm=_bf,
+                                beats=_volib.three_act_beats(secs),
+                                sub_pos="lower")
+                            if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
+                                os.replace(_vo_out, out)
+                        except BaseException:
+                            traceback.print_exc()
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -2989,8 +3447,9 @@ class Handler(SimpleHTTPRequestHandler):
                     else:
                         video = "/media/carousel/%s" % base
                     return {"video": video, "file": out, "secs": secs,
-                            "images": res["images"], "ratio": res.get("ratio")}
-                run_job(jid, work)
+                            "images": res["images"], "ratio": res.get("ratio"),
+                            "voiceover": bool(vo_meta)}
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/fast-cut":
@@ -3019,6 +3478,7 @@ class Handler(SimpleHTTPRequestHandler):
                 （appear·N × 0.592s，appear 动态 2~3：≤6张3次、≥7张2次）。
                 """
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -3107,7 +3567,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(show_text and text.strip()),
                             "voiceover": bool(vo_meta)}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/mix-cut":
@@ -3136,6 +3596,7 @@ class Handler(SimpleHTTPRequestHandler):
                 whoosh_cut, rot_shots, pan_dirs, captions(布尔), voiceover(布尔)}。
                 """
                 body = self.read_body_json()
+                branding = body.get("branding") or None
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
@@ -3260,7 +3721,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "pan_dirs": res.get("pan_dirs"),
                             "captions": bool(show_text and text.strip()),
                             "voiceover": bool(vo_meta)}
-                run_job(jid, work)
+                run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
             if p == "/api/recognize-labels":

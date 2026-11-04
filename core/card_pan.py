@@ -38,7 +38,8 @@ FOC = 1.15
 # 5-6 个镜头就是 5-6 次顿挫。收到 0.30s，且全片改用近匀速缓动后，叠化期
 # 两镜都在匀速运动中交叉，衔接变顺。
 XFADE = 0.30
-SPEED_LIMIT = 0.26   # 速度红线（窗口宽/秒）；0.20 偏保守，平移像"微挪"，放宽到 0.26
+SPEED_LIMIT = 0.21   # 速度红线（窗口宽/秒）；2026-11-04 用户要求"平稳不过快"，
+                     # 由 0.26 下调到 0.21（0.20 以下平移会像"微挪"）
 MAX_ROT_SHOTS = 3    # 全片最多 3 个旋转移镜（2026-10-29 放开：用户要求 Product Spotlight
                       # 也要能用「旋转」等多样运镜；仍走下方已调稳的小角度三维旋转，
                       # 边缘框自动降级为纯横滚，不晃）
@@ -250,6 +251,13 @@ def gen_shot(src, OW, OH, fps, m, W, H):
         else:
             frame = cv2.warpPerspective(src, M, (OW, OH), flags=cv2.INTER_LINEAR,
                                        borderMode=cv2.BORDER_REPLICATE)
+        # 2026-11-03 画质修复（用户反馈「生成的视频画质不清楚」）：取样窗像素宽
+        # 小于输出宽 OW 时属于上采样（信息量不足 → 帧发糊，实测 lap 方差
+        # 1243→47.6），对这类帧做轻度 USM 锐化补偿；窗口≥OW 的帧是降采样、
+        # 细节本来充足，锐化反而放大噪点，跳过。
+        if ww < OW:
+            from core.imgproc import _usm   # 单向依赖，无循环
+            frame = _usm(frame, amount=0.55, radius=1.4)
         yield frame
 
 
@@ -441,31 +449,64 @@ def _classify_box(box):
     return "inner"              # 其余视为内页局部
 
 
-def _auto_move_for(kind, idx):
-    """未显式指定 move 时，按内容种类给定默认运镜。
+def _choose_move(box, idx=0, prev=None):
+    """几何/构图驱动选运镜（不写死，取代固定 kind→move 表）。
+
+    纯看区域形状与位置决定主方向，相邻镜头方向去重防单调：
+      · 宽（w/h ≥ 1.35）→ 左右平移（pan / pan_rl）；
+      · 高（w/h ≤ 0.72）→ 上下平移（pan_v / pan_vr）；
+      · 近方形 → 旋转展示（orbit）/ 左右平移 轮转（macro 已禁）。
+    idx 用于在候选池里轮换，prev 用于把与上一镜完全相同的方向换掉。
+    返回不含 macro 的 move 字符串。
+    """
+    try:
+        x, y, w, h = [float(v) for v in box]
+    except Exception:
+        return "pan"
+    ar = w / max(1e-6, h)
+    if ar >= 1.35:                      # 宽幅元素（横排内页 / 信封展开）→ 左右平移
+        pool = ["pan", "pan_rl"]
+    elif ar <= 0.72:                    # 高幅元素（竖卡 / 长条）→ 上下平移
+        pool = ["pan_v", "pan_vr"]
+    else:                               # 近方形：旋转最能出彩，左右平移给变化
+        pool = ["orbit", "pan", "pan_rl"]
+    pick = pool[idx % len(pool)]
+    if prev is not None and pick == prev:
+        pool2 = [c for c in pool if c != prev] or pool
+        pick = pool2[idx % len(pool2)]
+    return pick
+
+
+def _auto_move_for(kind, idx, box=None, prev=None):
+    """未显式指定 move 时，按内容种类 + 区域几何给定默认运镜（几何优先，不写死）。
 
     2026-10-29 用户口径收紧：自动运镜只保留三类 —— **旋转**（orbit / tilt）、
     **平移（不同角度方向）**（pan 左右 / pan_rl 右左 / pan_v 上下 / pan_vr 下上 /
     diag 对角）、**拉远**（pull / reveal）。不再自动产 macro 推近镜头
     （macro 代码保留，仅显式 regions 传 move="macro" 时可用）。
+    2026-11-04 改为几何驱动：先看区域形状（见 _choose_move），再以 kind 做软修正
+    （外壳纸材优先 tilt 看纸纹；工艺/主体优先 orbit 看反光）。
     """
+    if box is not None and len(box) == 4:
+        base = _choose_move(box, idx, prev)
+        # kind 软修正：外壳纸材优先俯仰（tilt）展示纸纹，除非上一镜已 tilt
+        if kind in ("material",) and base in ("orbit", "diag", "pan") and prev != "tilt":
+            return "tilt"
+        return base
+    # 无几何信息时（兜底）按种类给基础方向，仍做相邻去重
     if kind in ("whole",):
-        return "scan"
-    if kind in ("craft",):
-        # 工艺（烫金/雕刻/浮雕/贴花）→ 小角度旋转展示金属反光随角度的变化
-        # （2026-10-29 用户：「就保留旋转，平移，拉远」；原「工艺只推近不旋转」
-        # 口径以本条为准）
-        return "orbit"
-    if kind in ("hero",):
-        return "orbit"
-    if kind in ("text", "inner", "envelope"):
-        # 内页 / 信封：平移横扫保可读性，方向按序轮换（左右 / 右左 / 上下）
-        return ("pan", "pan_rl", "pan_v", "pan_vr")[idx % 4]
-    if kind in ("material",):
-        return "tilt"           # 外壳纸材 → 俯仰/横滚看纸纹（旋转类）
-    # 通用卡片：平移各方向 / 对角 / 旋转 / 拉远 轮转（不出推近）
-    pool = ["pan", "diag", "orbit", "pan_v", "pull"]
-    return pool[idx % len(pool)]
+        cand = ["scan"]
+    elif kind in ("craft", "hero"):
+        cand = ["orbit", "tilt"]
+    elif kind in ("material",):
+        cand = ["tilt", "orbit"]
+    else:  # text/inner/envelope/card 等
+        cand = ["pan", "pan_rl", "pan_v", "pan_vr", "orbit"]
+    pick = cand[idx % len(cand)]
+    if prev is not None and pick == prev:
+        cand2 = [c for c in cand if c != prev] or cand
+        pick = cand2[idx % len(cand2)]
+    return pick
 
 
 def _win_for_box(box, fill, R, W, H, focus=None):
@@ -518,13 +559,15 @@ def build_plan_from_regions(regions, OW, OH, W, H, target_secs=None):
     R = OW / float(OH)
     # ---- 1) 解析 + 自动分配运镜 ----
     specs = []          # (box, kind, label, fill, move)
+    _prev_move = None
     for idx, rg in enumerate(regions):
         box = rg["box"]; kind = rg.get("kind", "card")
         label = rg.get("label", ""); fill = rg.get("fill", 0.9)
         focus = rg.get("focus")
         move = rg.get("move")
         if move is None:
-            move = _auto_move_for(kind, idx)
+            move = _auto_move_for(kind, idx, box=box, prev=_prev_move)
+        _prev_move = move
         specs.append([box, kind, label, fill, move, focus])
     # 旋转额度（2026-10-29 用户口径：「就保留旋转，平移（不同角度方向），拉远」）：
     # 旋转是主力运镜之一，最多放行 MAX_ROT_SHOTS(3) 个，超出才降级平移。
@@ -640,9 +683,9 @@ def build_plan_from_regions(regions, OW, OH, W, H, target_secs=None):
                 _dc = ww_c * 0.12 * (1.0 if move == "tour_h" else -1.0)
                 x0, x1 = x0 - _dc, x1 + _dc
                 _run = 0.24
-            # 时长按行程定（目标速度 ≈0.24 窗宽/秒）：短行程不会慢到"像没动"，
-            # 长行程也不会快到发飘。
-            _d = min(3.20, max(2.80, _run / 0.24))
+            # 时长按行程定（目标速度 ≈0.20 窗宽/秒，2026-11-04 用户要求平稳）：
+            # 短行程不会慢到"像没动"，长行程也不会快到发飘。
+            _d = min(4.20, max(3.40, _run / 0.20))
             plan.append(mk("tour", [x0, y0, ww_c], [x1, y1, ww_c], round(_d, 2), "flow",
                            tag=tag + " · " + _tg))
         elif move == "scan":
@@ -687,7 +730,7 @@ def build_plan_from_regions(regions, OW, OH, W, H, target_secs=None):
                 p0 = [cx, _s, ww]; p1 = [cx, _e, ww]; _tg = "平移 ↓"
             else:
                 p0 = [cx, _e, ww]; p1 = [cx, _s, ww]; _tg = "平移 ↑"
-            plan.append(mk("pan", p0, p1, 2.6, "flow", tag=tag + " · " + _tg))
+            plan.append(mk("pan", p0, p1, 3.0, "flow", tag=tag + " · " + _tg))
         elif move == "macro":
             # 2026-10-28：聚焦细节（工艺微距）不再切太近 —— 推近终点放宽，
             # 高清源 0.85x(≈1.18 倍) / 中清 0.88x / 低清 0.90x，保留"看清工艺"
@@ -706,23 +749,23 @@ def build_plan_from_regions(regions, OW, OH, W, H, target_secs=None):
                                tag=tag + " · 推近"))
         elif move == "pull":
             p0 = [cx, cy, ww * 0.78]; p1 = [cx, cy, ww]
-            plan.append(mk("pull", p0, p1, 2.2, "flow", tag=tag + " · 拉远"))
+            plan.append(mk("pull", p0, p1, 2.6, "flow", tag=tag + " · 拉远"))
         elif move == "diag":
             # 对角平移：方向按框在画面左右侧自动反向（左半 → 右下扫，右半 → 左上扫），
             # 相邻两个对角镜头自然不同向；窗口恒定、纯位移（2026-10-29 口径）。
             _sg = 1.0 if (box[0] + box[2] / 2.0) < 0.5 else -1.0
             p0 = [cx - ww * 0.13 * _sg, cy + ww * R * 0.10, ww]
             p1 = [cx + ww * 0.13 * _sg, cy - ww * R * 0.10, ww]
-            plan.append(mk("diag", p0, p1, 2.4, "flow", tag=tag + " · 对角扫"))
+            plan.append(mk("diag", p0, p1, 2.8, "flow", tag=tag + " · 对角扫"))
         elif move == "tilt":
             p0 = [cx, cy, ww]; p1 = [cx, cy, ww * 0.88]
             if _edge_margin(box) >= 0.18:
                 # 中心纸材：小角度俯仰 + 微横滚，留 1.5x 源边距防飞出条纹
-                plan.append(mk("tilt", p0, p1, 2.2, "flow", pitch=(3.5, -3.5),
+                plan.append(mk("tilt", p0, p1, 2.6, "flow", pitch=(3.5, -3.5),
                                roll=(2.5, -2.5), margin=1.5, tag=tag + " · 俯仰"))
             else:
                 # 边缘只给横滚，避免 Yaw/Pitch 飞出原图
-                plan.append(mk("tilt", p0, p1, 2.2, "flow", roll=(5.0, -5.0),
+                plan.append(mk("tilt", p0, p1, 2.6, "flow", roll=(5.0, -5.0),
                                tag=tag + " · 横滚"))
             rot_used += 1
         elif move == "orbit":
@@ -730,18 +773,18 @@ def build_plan_from_regions(regions, OW, OH, W, H, target_secs=None):
             if _edge_margin(box) >= 0.18:
                 # 中心工艺/主体：小角度环绕 + 留 1.6x 源边距
                 yaw, pit, rol, tg = (3.0, -3.0), (2.0, -2.0), (4.0, -4.0), "轨道旋转"
-                plan.append(mk("orbit", p0, p1, 2.4, "flow", yaw=yaw, pitch=pit,
+                plan.append(mk("orbit", p0, p1, 2.8, "flow", yaw=yaw, pitch=pit,
                                roll=rol, margin=1.6, tag=tag + " · " + tg))
             else:
                 # 边缘只给横滚（安全）
-                plan.append(mk("orbit", p0, p1, 2.4, "flow", roll=(4.0, -4.0),
+                plan.append(mk("orbit", p0, p1, 2.8, "flow", roll=(4.0, -4.0),
                                tag=tag + " · 横滚"))
             rot_used += 1
         elif move == "reveal":
             ww_full = H * R if R < 1.0 else W
             r0 = [W * 0.50, H * 0.50, ww * 0.35]
             r1 = [W * 0.50, H * 0.50, ww_full]
-            plan.append(mk("reveal", r0, r1, 2.4, "flow", tag=tag + " · 拉远"))
+            plan.append(mk("reveal", r0, r1, 2.8, "flow", tag=tag + " · 拉远"))
     # ---- 旋转兜底（2026-10-29）：用户要求 Product Spotlight 也要能用「旋转」等多样运镜。
     # 当内容镜头数≥2 且当前一个旋转都没有时，把第一个「窗口居中、非工艺/非钩子/非收尾」
     # 的内容镜改写为稳定的小角度 orbit（yaw±3° + roll±4°，留 1.6x 源边距；若该框贴边，
@@ -833,12 +876,14 @@ def build_plan_from_regions(regions, OW, OH, W, H, target_secs=None):
     # 速度收紧：dmax 锁到当前时长（只允许缩位移，不允许把时长加回来撑破 15s）
     for m in plan:
         cap = m["dur"]
+        # 2026-11-04 用户口径：Product Spotlight 运镜速度不要过快、要平稳。
+        # 全局峰值速度红线由 0.26/0.24/0.22 下调到 0.22/0.21/0.20 窗宽/秒。
         if m["kind"] in ("scan", "hook_scan", "hook_orbit", "tour"):
-            fit_motion2(m, limit=0.26, dmax=cap)   # 开场横扫/巡览/旋转给到红线上限
-        elif m["kind"] == "reveal":
             fit_motion2(m, limit=0.22, dmax=cap)
+        elif m["kind"] == "reveal":
+            fit_motion2(m, limit=0.20, dmax=cap)
         else:
-            fit_motion2(m, limit=0.24, dmax=cap)
+            fit_motion2(m, limit=0.21, dmax=cap)
     return plan
 
 
@@ -859,6 +904,131 @@ def build_synthetic_variety(W, H, OW, OH):
                 "label": "开场", "move": "hook_scan"}]
     regions += [{"box": b, "kind": k, "label": l} for b, k, l in subs]
     return build_plan_from_regions(regions, OW, OH, W, H)
+
+
+def subject_box(src, W, H):
+    """用梯度能量 + 中心偏置估计「这张图的主体框」（归一化 [x,y,w,h]）。
+
+    与 _plan_from_image_features 同一套特征，抽出来给其它兜底路径复用（例如内容
+    稀疏补镜），避免再写死 [0.10,0.28,...] 这种与图片无关的坐标。
+    失败返回 None。
+    """
+    try:
+        import cv2 as _cv
+        import numpy as _np
+        _img = _cv.imdecode(_np.fromfile(src, dtype=_np.uint8), _cv.IMREAD_COLOR)
+        if _img is None:
+            return None
+        _h, _w = _img.shape[:2]
+        _gray = _cv.cvtColor(_img, _cv.COLOR_BGR2GRAY)
+        _gx = _cv.Sobel(_gray, _cv.CV_32F, 1, 0, ksize=3)
+        _gy = _cv.Sobel(_gray, _cv.CV_32F, 0, 1, ksize=3)
+        _mag = _cv.GaussianBlur(_np.sqrt(_gx * _gx + _gy * _gy), (15, 15), 0)
+        _mag_n = _mag / (_mag.max() + 1e-6)
+        _ys, _xs = _np.mgrid[0:_h, 0:_w]
+        _cd = _np.sqrt(((_xs - _w / 2.0) / (_w / 2.0)) ** 2 +
+                       ((_ys - _h / 2.0) / (_h / 2.0)) ** 2)
+        _weight = _mag_n * (1.0 - 0.5 * _np.clip(_cd, 0.0, 1.0))
+        _pos = _weight[_weight > 0]
+        _thr = float(_np.percentile(_pos, 70)) if _pos.size else 0.0
+        _mask = _weight > max(_thr, 1e-3)
+        if _mask.sum() < 0.02 * _w * _h:
+            return [0.15, 0.15, 0.70, 0.70]
+        _y0, _x0 = _np.where(_mask)
+        return [float(_x0.min()) / _w, float(_y0.min()) / _h,
+                float(_x0.max() - _x0.min()) / _w,
+                float(_y0.max() - _y0.min()) / _h]
+    except BaseException:
+        return None
+
+
+def _plan_from_image_features(src, W, H, OW, OH):
+    """无视觉识别时的内容自适应兜底：用图像梯度能量找主体，按几何给运镜。
+
+    取代写死子区坐标的旧 build_synthetic_variety（[0.10,0.28,0.46,0.46] 等）——
+    真正看这张图「哪里有内容」：
+      · 梯度能量（Sobel 幅值，高斯模糊去噪）+ 中心偏置 → 主体掩膜；
+      · 主体占图过小（浅底/纯色）时回退整图中心区；
+      · 连通块判断是否「多卡平铺」：平铺则开场巡览 + 取前几大块按几何给运镜；
+        单主体则直接按几何展示（结尾由 build_plan_from_regions 自动补拉远）。
+    返回 shot plan；任何异常返回 None（交由 build_synthetic_variety 终极兜底）。
+    """
+    try:
+        import cv2 as _cv
+        import numpy as _np
+        _img = _cv.imdecode(_np.fromfile(src, dtype=_np.uint8), _cv.IMREAD_COLOR)
+        if _img is None:
+            return None
+        _gray = _cv.cvtColor(_img, _cv.COLOR_BGR2GRAY)
+        _gx = _cv.Sobel(_gray, _cv.CV_32F, 1, 0, ksize=3)
+        _gy = _cv.Sobel(_gray, _cv.CV_32F, 0, 1, ksize=3)
+        _mag = _np.sqrt(_gx * _gx + _gy * _gy)
+        _mag = _cv.GaussianBlur(_mag, (15, 15), 0)
+        _mag_n = _mag / (_mag.max() + 1e-6)
+        # 中心偏置：主体通常居中，边缘装饰权重压低
+        _ys, _xs = _np.mgrid[0:H, 0:W]
+        _cd = _np.sqrt(((_xs - W / 2.0) / (W / 2.0)) ** 2 +
+                       ((_ys - H / 2.0) / (H / 2.0)) ** 2)
+        _weight = _mag_n * (1.0 - 0.5 * _np.clip(_cd, 0.0, 1.0))
+        _pos = _weight[_weight > 0]
+        _thr = float(_np.percentile(_pos, 70)) if _pos.size else 0.0
+        _mask = _weight > max(_thr, 1e-3)
+        if _mask.sum() < 0.02 * W * H:
+            # 几乎无细节（纯色/浅底）→ 整图中心区作为主体
+            _box = [0.15, 0.15, 0.70, 0.70]
+            _spread = False
+        else:
+            _y0, _x0 = _np.where(_mask)
+            _box = [float(_x0.min()) / W, float(_y0.min()) / H,
+                    float(_x0.max() - _x0.min()) / W,
+                    float(_y0.max() - _y0.min()) / H]
+            # 多主体判定：连通块数 ≥2 且最大块 < 50% 总细节面积 → 平铺
+            _nlab, _lab, _stats, _ = _cv.connectedComponentsWithStats(
+                _mask.astype(_np.uint8), 8)
+            _areas = _stats[1:, _cv.CC_STAT_AREA].astype(float) if _nlab > 1 \
+                else _np.array([float(_mask.sum())])
+            _big = float(_areas.max()) if _areas.size else 0.0
+            _spread = (_big < 0.5 * float(_mask.sum())) and (_nlab - 1 >= 2)
+        regions = []
+        if _spread:
+            regions.append({"box": [0.0, 0.0, 1.0, 1.0], "kind": "whole",
+                            "label": "平铺总览", "move": "tour_h"})
+            _order = list(_np.argsort(-_areas)[:3])
+            _prev = "tour_h"
+            for _i, _oi in enumerate(_order):
+                _bx = _stats[_oi + 1, _cv.CC_STAT_LEFT] / W
+                _by = _stats[_oi + 1, _cv.CC_STAT_TOP] / H
+                _bw = _stats[_oi + 1, _cv.CC_STAT_WIDTH] / W
+                _bh = _stats[_oi + 1, _cv.CC_STAT_HEIGHT] / H
+                _mv = _choose_move([_bx, _by, _bw, _bh], _i, _prev)
+                regions.append({"box": [_bx, _by, _bw, _bh], "kind": "card",
+                                "label": "局部", "move": _mv})
+                _prev = _mv
+        else:
+            _mv = _choose_move(_box, 0, None)
+            regions.append({"box": _box, "kind": "card", "label": "主体", "move": _mv})
+            # 2026-11-04：单主体只给一镜时，成片只剩「旋转 + 拉远」（线上识别不可用
+            # 时这就是唯一路径，实测每张图都是这么一个镜头）。这里从**同一主体框**
+            # 派生 2 个近景镜（取景逐级收紧到 0.72 / 0.52 倍），运镜按几何+prev 去重
+            # 自然错开，保证「旋转 / 多方向平移 / 拉远」都能出现，且取景仍在主体上。
+            _prev_mv = _mv
+            for _k, _f in enumerate((0.72, 0.52)):
+                _bcx = _box[0] + _box[2] / 2.0
+                _bcy = _box[1] + _box[3] / 2.0
+                _bw2 = min(1.0, max(0.10, _box[2] * _f))
+                _bh2 = min(1.0, max(0.10, _box[3] * _f))
+                _bx2 = min(max(0.0, _bcx - _bw2 / 2.0), max(0.0, 1.0 - _bw2))
+                _by2 = min(max(0.0, _bcy - _bh2 / 2.0), max(0.0, 1.0 - _bh2))
+                _b2 = [_bx2, _by2, _bw2, _bh2]
+                _mv2 = _choose_move(_b2, _k + 1, _prev_mv)
+                regions.append({"box": _b2, "kind": "card",
+                                "label": "近景", "fill": 0.95, "move": _mv2})
+                _prev_mv = _mv2
+        if not regions:
+            return None
+        return build_plan_from_regions(regions, OW, OH, W, H)
+    except BaseException:
+        return None
 
 
 # ---------------- 0W5A0561 按图定制基准（2026-10-13 确认稿，回归用） ----------------

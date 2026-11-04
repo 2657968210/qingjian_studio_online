@@ -15,9 +15,9 @@
       "cover": "/static/templates/tpl_card_pan.mp4",
       "target_secs": 15,
       "recommended_ratio": "9:16",
-      "desc": "Bring your invitation design to life with gentle camera movements and detail close-ups. An elegant way to highlight the textures, craftsmanship, and finishing touches.",
+      "desc": "Highlight one invitation design with gentle motion and detail close-ups.",
       "moves": [
-        { "id": "summary", "label": "1\u20138 photos" }
+        { "id": "summary", "label": "1–8 photos" }
       ]
     },
     {
@@ -29,9 +29,36 @@
       "poster": "/static/templates/tpl_fourgrid.jpg",
       "target_secs": 12,
       "recommended_ratio": "9:16",
-      "desc": "Showcase your wedding stationery in a coordinated grid, then highlight each piece with quick cuts. Perfect for presenting matching invitations, menus, and on-the-day details.",
+      "desc": "Show matching invitations, menus, and cards in one coordinated video.",
       "moves": [
         { "id": "summary", "label": "4-8 photos" }
+      ]
+    },
+    {
+      "id": "wedding_look",
+      "name": "Color Palette Showcase",
+      "category": "trends",
+      "pipeline": "collage_palette",
+      "cover": "/static/templates/tpl_weddinglook.mp4",
+      "target_secs": "scales with photo count (3-12)",
+      "recommended_ratio": "9:16",
+      "desc": "Present your stationery alongside matching colors and wedding details.",
+      "moves": [
+        { "id": "summary", "label": "3-12 photos" }
+      ]
+    },
+    {
+      "id": "decor_show",
+      "name": "Wedding Signage & Decor",
+      "category": "wedding",
+      "pipeline": "decor_show",
+      "cover": "/static/templates/tpl_decor.mp4",
+      "poster": "/static/templates/tpl_decor.jpg",
+      "target_secs": "scales with photo count (3-12)",
+      "recommended_ratio": "9:16",
+      "desc": "Showcase welcome signs, seating charts, and coordinated wedding decor.",
+      "moves": [
+        { "id": "summary", "label": "3-12 photos" }
       ]
     },
     {
@@ -42,89 +69,89 @@
       "cover": "/static/templates/tpl_multi.mp4",
       "target_secs": 15,
       "recommended_ratio": "9:16",
-      "desc": "Introduce your invitation collection with a dedicated moment for every design. A polished showcase that pairs each style with its name, making your range easy to explore.",
+      "desc": "Introduce multiple designs, with a moment for each one.",
       "moves": [
         { "id": "summary", "label": "2-8 photos" }
       ]
     },
     {
       "id": "carousel",
-      "name": "Center-Stage Carousel",
+      "name": "New Arrivals Carousel",
       "category": "trends",
       "pipeline": "carousel",
       "cover": "/static/templates/tpl_carousel.mp4",
       "poster": "/static/templates/tpl_carousel.jpg",
       "target_secs": "scales with photo count (2-8)",
       "recommended_ratio": "9:16",
-      "desc": "Unveil your new arrivals with a sleek, center-focused carousel. As each design slides to the center at full size, the rest wait gracefully at the edges. Keep your collection title and website elegantly on display throughout the reveal.",
+      "desc": "Put each new design in the spotlight, with your collection title and website.",
       "moves": [
         { "id": "summary", "label": "2-8 photos" }
       ]
     },
     {
       "id": "scroll_gallery",
-      "name": "Colour Inspiration",
+      "name": "Wedding Color Inspiration",
       "category": "wedding",
       "pipeline": "scroll_gallery",
       "cover": "/static/templates/tpl_scroll_bgm.mp4",
       "target_secs": "5s scroll + per-photo (scales)",
       "recommended_ratio": "9:16",
-      "desc": "Pair your stationery with wedding scenes in a flowing two-column display. A stylish way to share colour palettes, styling ideas, and beautifully coordinated details.",
+      "desc": "Pair your stationery with wedding scenes to share a coordinated look.",
       "moves": [
         { "id": "summary", "label": "6-8 photos" }
       ]
     },
     {
       "id": "fast_cut",
-      "name": "Fast Cut",
+      "name": "Beat-Synced Showcase",
       "category": "wedding",
       "pipeline": "fast_cut",
       "cover": "/static/templates/tpl_fastcut.mp4",
       "poster": "/static/templates/tpl_fastcut.jpg",
       "target_secs": 11,
       "recommended_ratio": "9:16",
-      "desc": "Turn your photos into a lively, beat-synced showcase. Quick cuts highlight your invitation designs, colour palettes, and coordinated wedding details, with an elegant caption throughout.",
+      "desc": "Showcase your designs with quick cuts timed to the music.",
       "moves": [
         { "id": "summary", "label": "5-12 photos" }
       ]
     },
     {
       "id": "cinematic_cut",
-      "name": "Cinematic Cut",
+      "name": "Cinematic Showcase",
       "category": "product",
       "pipeline": "cinematic_cut",
       "cover": "/static/templates/tpl_cinematic.mp4",
       "poster": "/static/templates/tpl_cinematic.jpg",
       "target_secs": "4.8 + 0.56 x N (scales with photo count)",
       "recommended_ratio": "9:16",
-      "desc": "Bring your stationery details into focus with gentle rotations, smooth pans, and music-timed transitions. A refined way to showcase textures, craftsmanship, and coordinated designs.",
+      "desc": "Highlight textures and details with slow, elegant motion.",
       "moves": [
         { "id": "summary", "label": "6-12 photos" }
       ]
     },
     {
       "id": "three_screen",
-      "name": "Three-Screen Story",
+      "name": "Three-Panel Showcase",
       "category": "wedding",
       "pipeline": "three_screen",
       "cover": "/static/templates/tpl_three_screen.mp4",
       "poster": "/static/templates/tpl_three_screen.jpg",
       "target_secs": "scales with photo count (5-12)",
       "recommended_ratio": "9:16",
-      "desc": "Open with three stacked bands revealing top to bottom, then let every photo tell its story with a camera move chosen for it. Invitations, table cards, and menus glide gently across the screen, while wide scenes drift to reveal the full setting.",
+      "desc": "Open with a three-panel layout, then showcase each photo in turn.",
       "moves": [
         { "id": "summary", "label": "5-12 photos" }
       ]
     },
     {
       "id": "top5",
-      "name": "Dynamic Top Countdown",
+      "name": "Top Picks Countdown",
       "category": "trends",
       "pipeline": "top5",
       "cover": "/static/templates/tpl_top5.mp4",
       "target_secs": "scales with photo count (3-8)",
       "recommended_ratio": "9:16",
-      "desc": "Create a suspenseful countdown of your top styles. Start with a custom title card, then feature each product with a dedicated camera move, rank, and SKU. Tailored to your upload quantity for a flawless collection reveal.",
+      "desc": "Count down your favorite designs with names and product codes.",
       "moves": [
         { "id": "summary", "label": "3-8 photos" }
       ]

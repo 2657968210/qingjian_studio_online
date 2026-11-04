@@ -1,1 +1,14 @@
+# 运行时 / 缓存（非源码，不进版本库）
+__pycache__/
+*.pyc
+data/
+.workbuddy/
+jobs/
+_publish_stash/
+*.zip
+*.log
+_reflog*.txt
+_del.txt
+
+# 密钥文件不进仓库（用 config.template.json 作模板）
 config.json

@@ -20,7 +20,10 @@
     </div>
   </div>
   <span class="top-tag">Invitation Promo Video</span>
-  <button class="setup-btn" id="btnSetup" type="button" title="Studio setup" aria-label="Studio setup">
+  <!-- 2026-11-04：Studio setup 入口从前台隐藏（ARK key 等配置走 config.json，
+       弹窗标记保留，JS 绑定不受影响） -->
+  <button class="setup-btn" id="btnSetup" type="button" title="Studio setup" aria-label="Studio setup"
+          hidden style="display:none">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.4" fill="var(--surface)"/>
@@ -36,15 +39,15 @@
     <button class="rail-item" data-step="1" type="button">
       <span class="dot">1</span>
       <span class="rail-txt">
-        <span class="lbl">Choose Template</span>
-        <span class="sub">Pick the video style you&rsquo;d like to create.</span>
+        <span class="lbl">Choose a Template</span>
+        <span class="sub">Pick a style for your product video.</span>
       </span>
     </button>
     <button class="rail-item" data-step="2" type="button">
       <span class="dot">2</span>
       <span class="rail-txt">
         <span class="lbl">Upload Photos</span>
-        <span class="sub">Add your product photos to the template.</span>
+        <span class="sub">Add your photos.</span>
       </span>
     </button>
     <button class="rail-item" data-step="3" type="button">
@@ -57,21 +60,21 @@
     <button class="rail-item" data-step="4" type="button">
       <span class="dot">4</span>
       <span class="rail-txt">
-        <span class="lbl">Captions &amp; Voiceover</span>
-        <span class="sub">Choose whether to add captions and voiceover.</span>
+        <span class="lbl">Customize Your Video</span>
+        <span class="sub">Add text, music, and your brand.</span>
       </span>
     </button>
     <button class="rail-item" data-step="5" type="button">
       <span class="dot">5</span>
       <span class="rail-txt">
-        <span class="lbl">Generate Video</span>
-        <span class="sub">Create your video, then preview and download.</span>
+        <span class="lbl">Create &amp; Download</span>
+        <span class="sub">Create, preview, and download your video.</span>
       </span>
     </button>
 
     <div class="rail-note">
-      Upload a product photo and the studio works out the camera moves for you: it reads which pieces
-      and craft are in the shot, then builds the sweep, macro, rotate and single-card cuts. Nothing to tune.
+      Upload your photos and the studio picks the camera moves for you. It reads the layout and content
+      of each shot, then builds gentle pans, rotations, and pull-backs that fit the image. Nothing to tune.
     </div>
   </nav>
 
@@ -108,8 +111,8 @@
         <input type="file" id="fileInput" accept="image/*" multiple hidden>
         <div class="drop-inner">
           <span class="drop-ico">＋</span>
-          <b>Click to upload a photo, or drag it here</b>
-          <span class="drop-sub">JPG or PNG &middot; Use the original, high-resolution photo</span>
+          <b>Click to upload photos, or drag and drop them here</b>
+          <span class="drop-sub">JPG or PNG &middot; Original, high-resolution photos recommended</span>
         </div>
       </div>
 
@@ -156,104 +159,172 @@
       </div>
     </section>
 
-    <!-- ============ Step 4 · captions & voiceover ============ -->
+    <!-- ============ Step 4 · customize your video ============ -->
     <section class="card step" id="step4" hidden>
-      <div class="eyebrow">04 / Captions &amp; voiceover</div>
-      <h2>Add Captions &amp; Voiceover</h2>
-      <p class="lede">Introduce your product with on-screen text, an AI voiceover, or both.</p>
+      <div class="eyebrow">04 / Customize Your Video</div>
+      <h2>Customize Your Video</h2>
+      <p class="lede">Add text, voiceover, music, and your logo. All optional.</p>
 
       <div class="shape-tpl">
         <span class="shape-tpl-lbl">Template</span>
         <span class="shape-tpl-moves" id="voTplInfo"></span>
       </div>
 
-      <div class="ratios" id="optCards">
-        <label class="ratio optcard">
-          <input type="checkbox" id="capOn">
-          <span class="opt-txt">
-            <span class="rname">Add Captions</span>
-            <span class="rdesc">Show your product introduction as on-screen text.</span>
-          </span>
-        </label>
-        <label class="ratio optcard">
-          <input type="checkbox" id="voOn">
-          <span class="opt-txt">
-            <span class="rname">Add AI Voiceover</span>
-            <span class="rdesc">Let an AI voice introduce your product.</span>
-          </span>
-        </label>
-      </div>
-
-      <!-- Add Captions fields — per template (only the matching block shows) -->
-      <div class="col-title" id="capFields" hidden>
-        <div style="margin:0 0 12px">
-          <label class="field" style="max-width:320px"><span>Font &middot; used by all on-screen text</span>
-            <select id="capFont" style="width:100%">
-              <option value="italic" selected>Serif Italic &middot; Cormorant (default)</option>
-              <option value="serif">Serif &middot; Cormorant</option>
-              <option value="light">Light Italic &middot; Cormorant</option>
-              <option value="script">Script &middot; Great Vibes</option>
-            </select>
+      <!-- Block 1 · On-Screen Text -->
+      <div class="subcard" id="subCaptions">
+        <div class="subcard-head">
+          <span class="subcard-no">1</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">On-Screen Text</div>
+            <div class="subcard-sub">Add a short headline to your video.</div>
+          </div>
+          <label class="switch" title="Add captions">
+            <!-- 2026-11-03：有文字版本的模版 Captions 默认开启 -->
+            <input type="checkbox" id="capOn">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
           </label>
         </div>
-        <div id="capFieldsMulti" hidden>
-          <label class="field"><span>Collection title &middot; shown on the opening board</span>
-            <input id="colTitle" type="text" maxlength="60" placeholder="Our Collection"></label>
-        </div>
-        <div id="capFieldsGrid" hidden>
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <label class="field" style="flex:1 1 200px"><span>Title &middot; serif</span>
-              <input id="fgTitle" type="text" maxlength="40" placeholder="WEDDING TREND"></label>
-            <label class="field" style="flex:1 1 200px"><span>Subtitle &middot; script</span>
-              <input id="fgSub" type="text" maxlength="40" placeholder="Dusty Blue"></label>
+        <div class="subcard-body" id="capFields" hidden>
+          <div style="margin:0 0 12px" id="capFontWrap">
+            <label class="field" style="max-width:320px"><span>Text style</span>
+              <select id="capFont" style="width:100%">
+                <option value="italic" selected>Serif Italic · Cormorant (default)</option>
+                <option value="serif">Serif · Cormorant</option>
+                <option value="light">Light Italic · Cormorant</option>
+                <option value="script">Script · Great Vibes</option>
+              </select>
+            </label>
+          </div>
+          <!-- 2026-11-03 字体样式预览：按客户当前输入的文字实时渲染所选字体（白字、深底） -->
+          <div class="font-preview" id="fontPreview" aria-hidden="true">
+            <span id="fontPreviewText"></span>
+          </div>
+          <div id="capFieldsMulti" hidden>
+            <label class="field"><span>Collection title · shown on the opening board</span>
+              <input id="colTitle" type="text" maxlength="60" placeholder="Our Collection"></label>
+          </div>
+          <div id="capFieldsGrid" hidden>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <label class="field" style="flex:1 1 200px"><span>Title · serif</span>
+                <input id="fgTitle" type="text" maxlength="40" placeholder="WEDDING TREND"></label>
+              <label class="field" style="flex:1 1 200px"><span>Subtitle · script</span>
+                <input id="fgSub" type="text" maxlength="40" placeholder="Dusty Blue"></label>
+            </div>
+          </div>
+          <div id="capFieldsLook" hidden>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <label class="field" style="flex:1 1 200px"><span>Title · serif</span>
+                <input id="wlTitle" type="text" maxlength="40" placeholder="WEDDING TREND"></label>
+              <label class="field" style="flex:1 1 200px"><span>Subtitle · colour name &mdash; detected from your photos, edit if needed</span>
+                <input id="wlSub" type="text" maxlength="40" value="" placeholder="e.g. Terracotta &amp; Rust"></label>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <span class="hint" style="margin:0">We read the palette name from your photos. Type your own wording if it doesn&rsquo;t match.</span>
+              <button class="btn btn-quiet" id="wlRedetect" type="button" style="margin:0">Detect colours again</button>
+            </div>
+          </div>
+          <div id="capFieldsLine" hidden>
+            <label class="field"><span>Video headline</span>
+              <input id="capLine" type="text" maxlength="60" placeholder="Suggest Text"></label>
+          </div>
+          <div id="capFieldsFast" hidden>
+            <label class="field"><span>On-screen caption · italic, shown throughout &mdash; leave blank for the default</span>
+              <input id="fcText" type="text" maxlength="60" placeholder="the details, the day"></label>
+          </div>
+          <div id="capFieldsCin" hidden>
+            <label class="field"><span>On-screen caption · italic, shown throughout &mdash; leave blank for the default</span>
+              <input id="cinText" type="text" maxlength="60" placeholder="the details, the day"></label>
+          </div>
+          <div id="capFieldsThree" hidden>
+            <label class="field"><span>On-screen subtitle &middot; shown in the upper part of the video &mdash; leave blank and we&rsquo;ll write one from your photos</span>
+              <input id="tsText" type="text" maxlength="60" placeholder="Your three-screen story"></label>
+          </div>
+          <div id="capFieldsDecor" hidden>
+            <label class="field"><span>On-screen text &middot; shown in the upper part of the video &mdash; leave blank and we&rsquo;ll write one from your photos</span>
+              <input id="decorCap" type="text" maxlength="60" placeholder="Timeless details, beautifully made"></label>
           </div>
         </div>
-        <div id="capFieldsLine" hidden>
-          <label class="field"><span>On-screen text &middot; leave blank and we&rsquo;ll write one from your photo</span>
-            <input id="capLine" type="text" maxlength="60" placeholder="Hand-finished wedding invitations"></label>
+      </div>
+
+      <!-- Block 2 · Voiceover -->
+      <div class="subcard" id="subVoiceover">
+        <div class="subcard-head">
+          <span class="subcard-no">2</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">Voiceover</div>
+            <div class="subcard-sub">Add an AI-generated voice to introduce your design.</div>
+          </div>
+          <label class="switch" title="Add AI voiceover">
+            <input type="checkbox" id="voOn">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
         </div>
-        <div id="capFieldsFast" hidden>
-          <label class="field"><span>On-screen caption &middot; italic, shown throughout &mdash; leave blank for the default</span>
-            <input id="fcText" type="text" maxlength="60" placeholder="the details, the day"></label>
-        </div>
-        <div id="capFieldsCin" hidden>
-          <label class="field"><span>On-screen caption &middot; italic, shown throughout &mdash; leave blank for the default</span>
-            <input id="cinText" type="text" maxlength="60" placeholder="the details, the day"></label>
-        </div>
-        <div id="capFieldsThree" hidden>
-          <label class="field"><span>On-screen subtitle &middot; shown at the bottom &mdash; leave blank and we&rsquo;ll write one from your photos</span>
-            <input id="tsText" type="text" maxlength="60" placeholder="Your three-screen story"></label>
+        <div class="subcard-body" id="voFields" hidden>
+          <label class="field"><span>Key product detail</span>
+            <input id="voSelling" type="text" maxlength="80" placeholder="hot-foil stamping on textured cotton paper"></label>
+          <label class="field"><span>Call to action</span>
+            <select id="voCta" style="width:100%;max-width:420px">
+              <option value="view">See the full collection</option>
+              <option value="inquire">Ask about custom orders</option>
+              <option value="samples">Request samples</option>
+            </select></label>
+          <p class="hint" style="margin-top:8px">A short English narration is written to match your video&rsquo;s timing and burned in as subtitles. Adds about a minute.</p>
         </div>
       </div>
 
-      <!-- Add AI Voiceover fields -->
-      <div class="col-title" id="voFields" hidden>
-        <label class="field"><span>Selling point &middot; one core strength, spoken mid-video &mdash; leave blank and we&rsquo;ll describe the designs</span>
-          <input id="voSelling" type="text" maxlength="80" placeholder="hot-foil stamping on textured cotton paper"></label>
-        <label class="field"><span>Closing line &middot; how the video ends</span>
-          <select id="voCta" style="width:100%;max-width:420px">
-            <option value="view">See the full collection</option>
-            <option value="inquire">Ask about custom orders</option>
-            <option value="samples">Request samples</option>
-          </select></label>
-        <p class="hint" style="margin-top:8px">A short English narration is written to match your video&rsquo;s timing and burned in as subtitles. Adds about a minute.</p>
-      </div>
-
-      <!-- Background music — template default, pick from the library, or upload your own (2026-10-27) -->
-      <div class="col-title" id="bgmFields" style="margin-top:14px" hidden>
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-          <label class="field" style="flex:1 1 260px">
-            <span>Background music &middot; keep the template&rsquo;s music, choose no music, or upload your own</span>
-            <select id="bgmSel" style="width:100%">
-              <option value="" selected>Template default music</option>
-              <option value="__none__">No music</option>
-            </select>
-          </label>
-          <label class="btn btn-quiet" style="margin:0;cursor:pointer">Upload audio
-            <input id="bgmFile" type="file" accept=".mp3,.wav,.m4a,.ogg,.flac,audio/*" hidden>
+      <!-- Block 3 · Branding -->
+      <div class="subcard" id="subBranding">
+        <div class="subcard-head">
+          <span class="subcard-no">3</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">Logo &amp; End Card</div>
+            <div class="subcard-sub">Add your logo and a closing tagline at the end of the video.</div>
+          </div>
+          <label class="switch" title="Enable branding outro">
+            <input type="checkbox" id="brandOn">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
           </label>
         </div>
-        <p class="hint" id="bgmHint" style="margin-top:8px" hidden></p>
+        <div class="subcard-body" id="brandFields" hidden>
+          <label class="field" style="max-width:420px"><span>Logo · PNG (transparent) or JPG — both supported</span>
+            <span class="upload-pill" id="logoPill">
+              <span class="upload-pill-txt" id="logoName">No logo selected</span>
+              <span class="upload-pill-btn">Upload logo
+                <input id="logoFile" type="file" accept="image/png,image/*" hidden>
+              </span>
+            </span>
+          </label>
+          <label class="field" style="max-width:420px"><span>Tagline (optional)</span>
+            <input id="brandTagline" type="text" maxlength="60" placeholder="Optional &mdash; e.g. Made with care"></label>
+          <p class="hint" id="logoHint" style="margin-top:8px" hidden></p>
+        </div>
+      </div>
+
+      <!-- Block 4 · Background Music -->
+      <div class="subcard" id="subMusic">
+        <div class="subcard-head">
+          <span class="subcard-no">4</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">Background Music</div>
+            <div class="subcard-sub">Use the template music, upload your own, or create a video without music.</div>
+          </div>
+        </div>
+        <div class="subcard-body" id="bgmFields">
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <label class="field" style="flex:1 1 260px">
+              <span>Music</span>
+              <select id="bgmSel" style="width:100%">
+                <option value="" selected>Use Template Music</option>
+                <option value="__upload__">Upload My Own Music</option>
+                <option value="__none__">No Music</option>
+              </select>
+            </label>
+            <label class="btn btn-quiet" style="margin:0;cursor:pointer">Upload Music
+              <input id="bgmFile" type="file" accept=".mp3,.wav,.m4a,.ogg,.flac,audio/*" hidden>
+            </label>
+          </div>
+          <p class="hint" id="bgmHint" style="margin-top:8px" hidden></p>
+        </div>
       </div>
 
       <div class="actions">
@@ -293,7 +364,7 @@
   <!-- right · progress summary -->
   <aside class="aside" id="aside">
     <div class="aside-card">
-      <h3>Your video</h3>
+      <h3>Video Summary</h3>
       <ul class="aside-list" id="asideList"></ul>
       <p class="aside-note">Photos stay private and are removed automatically when you close this tab.</p>
     </div>
@@ -324,6 +395,14 @@
 </div>
 
 <div class="toast" id="toast" hidden></div>
+
+<!-- uploaded-photo preview lightbox（2026-11-03：上传图片点击放大预览） -->
+<div class="mask" id="photoLightbox" hidden>
+  <div class="lb">
+    <button class="lb-x" id="photoLbClose" type="button" title="Close">&times;</button>
+    <img id="photoLbImg" alt="">
+  </div>
+</div>
 
 <!-- template preview lightbox -->
 <div class="mask" id="tplLightbox" hidden>
