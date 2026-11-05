@@ -71,7 +71,7 @@ TOTAL_MAX = 15.0      # 成片总时长红线（用户 2026-10-14：不要超过
 OPENER = 2.2          # 标题占用预算（叠在第一个款式上，参考片 ≈2.5s）
 OPENER_SHORT = 1.6    # 图少于 4 张时标题窗口更短
 MIN_SEG = 1.6         # 单段最短（图多时自动快剪的下限）
-TARGET_SEG = 2.5      # 单段目标时长（用户 2026-10-15：镜头速度偏慢→缩短单段、更利落；图少不硬凑 15s）
+TARGET_SEG = 3.0      # 单段目标时长（用户 2026-11-05：Collection 运镜整体调慢+稳定→单段拉长、更稳）
 MAX_IMAGES = 8        # 最多支持的合集图数（再多就超出 15s 预算）
 MIN_IMAGES = 2
 
@@ -98,6 +98,8 @@ BAND_LUM_HI = 0.88    # 高于此 → 出满带
 
 LABEL_SIZE = 0.094    # 名牌字号 = 输出宽 × 该比例（用户 2026-10-15：再大一点；比标题 0.100 略小、保留层级）
 TITLE_SIZE = 0.100    # 标题字号
+CAP_SIZE = 0.060      # 可选 Caption 字号（用户 2026-11-05 新增每图标注，比名牌小一档）
+CAP_Y = 0.92          # Caption 纵向位置（画面高度比例，底部）
 TRACK_LABEL = 0.10    # 字距（相对字号）——参考片名牌字距不大
 TRACK_TITLE = 0.06    # 主标题字距同样收小，贴参考片
 TITLE_MAXW = 0.88     # 标题最大宽度（超出自动缩字号）
@@ -301,6 +303,35 @@ def _label_layers(text, OW, font_path=None):
     block = sum(l.shape[0] for l in layers) + gap * (len(layers) - 1)
     return layers, gap, block
 
+
+def _caption_layers(text, OW, font_path=None):
+    """可选 Caption 层（用户 2026-11-05：Collection Showcase 每图标注文字）。
+    单行或自动折两行，奶油黄斜体 + 柔影，与名牌同款观感。空 → None。"""
+    text = str(text or "").strip()
+    if not text:
+        return None
+    fpath = font_path or FONT_LABEL
+    size = max(18, int(round(OW * CAP_SIZE)))
+    max_w = int(OW * 0.92)
+    if _line_w(text, fpath, size, 0.02) <= max_w:
+        return [_text_layer(text, fpath, size, 0.02, color=CREAM_LABEL, shadow=True)]
+    lines = _wrap2(text, fpath, size, 0.02, max_w)
+    def mk(sz):
+        return [_text_layer(ln, fpath, sz, 0.02, color=CREAM_LABEL, shadow=True) for ln in lines]
+    return _fit_width(mk, size, max_w, min_size=18)
+
+
+def _blend_bottom(frame, layers, OW, OH, frac_y, alpha):
+    """把 Caption 层组叠到 frame 的 frac_y（画面比例）横居中处（淡入淡出用 alpha）。"""
+    if not layers or alpha <= 0.002:
+        return frame
+    cy = OH * frac_y
+    top = cy - sum(l.shape[0] for l in layers) / 2.0
+    for l in layers:
+        frame = _blend_layer(frame, l, OW * 0.5, top + l.shape[0] / 2.0, alpha)
+        top += l.shape[0]
+    return frame
+
 # ============================================================================
 #  画面取景
 # ============================================================================
@@ -347,11 +378,11 @@ def plan_timing(n, total=TOTAL_MAX):
 #   判别（detail/full/rotate）会把多张图映射到同一个「固定镜头」，看起来就重复。
 #   现在改成「家族 + 方向」签名 + 全片防重集合（见 _pick_cand），每个家族都备足变体。
 _VPOOL = ("scan_lr", "push", "scan_rl", "pull", "diag_ur", "vup", "diag_dl", "vdown")
-V_SPEED = 0.34        # 横移类速度上限（用户 2026-10-15：运镜明显+更快；原 0.24，9:16 横移原被压成 0.7 幅度）
-V_SPEED_ZOOM = 0.32   # 推拉 / 对角 / 垂直（原 0.22）
-V_SWEEP = 0.40        # 横移幅度（视窗宽比例；用户 2026-10-15 二次加大：0.34→0.40）
-V_TILT = 0.16         # 垂直「摇」幅度（视窗高比例；纵轴余量通常比横轴小，故低于 V_SWEEP）
-V_LIFT = 0.12         # 垂直位移（视窗高比例；0.10→0.12）
+V_SPEED = 0.22        # 横移类速度上限（用户 2026-11-05：Collection 运镜整体调慢+稳定→0.34→0.22）
+V_SPEED_ZOOM = 0.20   # 推拉 / 对角 / 垂直（用户 2026-11-05：0.32→0.20）
+V_SWEEP = 0.30        # 横移幅度（视窗宽比例；用户 2026-11-05：0.40→0.30，幅度收缩更稳）
+V_TILT = 0.11         # 垂直「摇」幅度（视窗高比例；用户 2026-11-05：0.16→0.11）
+V_LIFT = 0.08         # 垂直位移（视窗高比例；用户 2026-11-05：0.12→0.08）
 
 # 位移「可用」阈值 & 两轴都没余量时的缩放兜底（2026-10-15 修「1:1 有整段静止」）：
 # 位移小于视窗的 5% 时观众只会读成静止帧，这种方向的平移一律视为不可用，
@@ -720,7 +751,7 @@ def _variant(i, W, H, OW, OH, dur, shot=None, focus=None, used=None):
 # ============================================================================
 def render_multi(images, out_path, labels=None, title=None, ratio="9x16",
                  fps=FPS, total=TOTAL_MAX, progress=None, shots=None, focuses=None,
-                 font=None):
+                 captions=None, font=None):
     """N 张合集图 → 一条成片（只出画面，不含配乐；配乐由调用方混）。
 
     images : 图片路径列表（2~8 张；超出按前 8 张处理）
@@ -738,6 +769,7 @@ def render_multi(images, out_path, labels=None, title=None, ratio="9x16",
         raise ValueError("Need at least %d collection photos" % MIN_IMAGES)
     imgs_paths = imgs_paths[:MAX_IMAGES]
     labels = list(labels or [])
+    captions = list(captions or [])
     # 每张图的「运镜判别」（detail / full / rotate）；缺省 None → 回落池轮转（向后兼容）
     shots = list(shots or [])
     focuses = list(focuses or [])
@@ -768,6 +800,10 @@ def render_multi(images, out_path, labels=None, title=None, ratio="9x16",
     for i in range(n):
         txt = (labels[i] if i < len(labels) else "") or ""
         lab_layers.append(_label_layers(txt, OW, fp))
+    cap_layers = []
+    for i in range(n):
+        txt = (captions[i] if i < len(captions) else "") or ""
+        cap_layers.append(_caption_layers(txt, OW, fp))
 
     out_dir = os.path.dirname(os.path.abspath(out_path))
     if out_dir:
@@ -856,6 +892,14 @@ def render_multi(images, out_path, labels=None, title=None, ratio="9x16",
                         frame = _blend_layer(frame, l, OW * 0.5,
                                              top + l.shape[0] / 2.0, a)
                         top += l.shape[0] + gap0
+            # ---- Caption（底部，与名牌同口径淡入淡出）----
+            cap0 = cap_layers[0]
+            if cap0 is not None:
+                a = min(1.0, max(0.0, (k - k_title_out) / float(fin_l)))
+                if k >= nf0 - fout_l:
+                    a *= max(0.0, (nf0 - k) / float(fout_l))
+                if a > 0.002:
+                    frame = _blend_bottom(frame, cap0, OW, OH, CAP_Y, a)
             proc.stdin.write(frame.tobytes()); wrote += 1
         if progress:
             progress(35, 100, "Opening with your first design")
@@ -908,6 +952,14 @@ def render_multi(images, out_path, labels=None, title=None, ratio="9x16",
                             frame = _blend_layer(frame, l, OW * 0.5,
                                                  top + l.shape[0] / 2.0, a)
                             top += l.shape[0] + gap_i
+                # ---- Caption（底部，与名牌同口径淡入淡出）----
+                cap_i = cap_layers[i]
+                if cap_i is not None:
+                    a = min(1.0, k / max(1.0, 0.30 * fps))
+                    if k >= nf - int(0.25 * fps):
+                        a *= max(0.0, (nf - k) / max(1.0, 0.25 * fps))
+                    if a > 0.002:
+                        frame = _blend_bottom(frame, cap_i, OW, OH, CAP_Y, a)
                 proc.stdin.write(frame.tobytes()); wrote += 1
             if progress:
                 progress(35 + int(60.0 * (i + 1) / n), 100, "Rendering look %d/%d" % (i + 1, n))

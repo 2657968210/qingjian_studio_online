@@ -510,6 +510,31 @@ def _small_data(bgr):
     return small.reshape(-1, 3).astype(np.float32)
 
 
+def _weighted_sample(bgr):
+    """降背景/阴影影响的采样（2026-11-05 用户③）。
+
+    在 80×80 均匀采样基础上，把「中心区域 × 正常曝光」的像素**复制一份**
+    并入样本：主体居中的请柬/纸张/封套/丝带权重 ≈2 倍，四周背景 ≈1 倍，
+    深阴影（V<50）不参与复制 ≈0.5 倍——降低背景、阴影及无关装饰对识别的
+    影响。确定性、无随机；下游像素分族/投票代码零改动。
+    """
+    h, w = bgr.shape[:2]
+    s = min(80, min(h, w))
+    small = cv2.resize(bgr, (s, s), interpolation=cv2.INTER_AREA)
+    flat = small.reshape(-1, 3).astype(np.float32)
+    yy, xx = np.mgrid[0:s, 0:s]
+    cx = xx / float(max(1, s - 1)) - 0.5
+    cy = yy / float(max(1, s - 1)) - 0.5
+    center = np.exp(-(cx * cx + cy * cy) * 2.2).reshape(-1)
+    hsv = cv2.cvtColor(small.astype(np.uint8).reshape(-1, 1, 3),
+                       cv2.COLOR_BGR2HSV).reshape(-1, 3)
+    v = hsv[:, 2].astype(np.float32)
+    core = (center >= 0.55) & (v >= 50)      # 中心 + 非深影
+    if int(core.sum()) >= 64:
+        return np.vstack([flat, flat[core]])
+    return flat
+
+
 def image_color_profile(bgr):
     """单张照片的色彩画像（上传时预计算，落库到 entry["color_profile"]）。
 
@@ -523,7 +548,7 @@ def image_color_profile(bgr):
     的画像做投票，不再把所有像素混在一起重新聚类——多一张/少一张图
     或一张偏色图都不会轻易推翻整体主题色。
     """
-    data = _small_data(bgr)
+    data = _weighted_sample(bgr)
     try:
         hsv = cv2.cvtColor(data.astype(np.uint8).reshape(-1, 1, 3),
                            cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(np.float32)
@@ -628,10 +653,7 @@ def detect_palette(bgr_images, n=N_SWATCH, forced_family=None):
     """
     samples = []
     for im in bgr_images:
-        h, w = im.shape[:2]
-        s = min(80, min(h, w))
-        small = cv2.resize(im, (s, s), interpolation=cv2.INTER_AREA)
-        samples.append(small.reshape(-1, 3).astype(np.float32))
+        samples.append(_weighted_sample(im))
     if not samples:
         return _pad_variants([(202, 198, 192)], n)
     data = np.vstack(samples)
@@ -732,10 +754,26 @@ _PALETTE_NAMES = [
     ((140, 160, 150), "Eucalyptus"),
     ((120, 150, 130), "Fir"),
     ((190, 205, 220), "Powder Blue"),
+    ((174, 214, 232), "Light Blue"),
     ((152, 172, 190), "Dusty Blue"),
     ((110, 130, 155), "Steel Blue"),
     ((70, 90, 120),   "Navy"),
+    ((40, 58, 98),    "Navy Blue"),
     ((70, 70, 72),    "Charcoal"),
+    ((28, 28, 30),    "Black"),
+    ((200, 204, 210), "Silver"),
+    ((247, 202, 201), "Blush Pink"),
+    ((205, 150, 148), "Dusty Rose"),
+    ((158, 174, 148), "Sage Green"),
+    ((24, 108, 82),   "Emerald Green"),
+    ((222, 196, 138), "Soft Gold"),
+    ((248, 230, 168), "Butter Yellow"),
+    ((247, 199, 166), "Peach"),
+    ((231, 216, 188), "Beige"),
+    ((199, 188, 224), "Lavender"),
+    ((172, 130, 140), "Mauve"),
+    ((86, 56, 84),    "Deep Plum"),
+    ((92, 64, 44),    "Chocolate Brown"),
 ]
 
 
@@ -801,6 +839,246 @@ def name_palette(palette):
         return ""
     fam, light = _family_names(palette)
     return "%s & %s" % (fam, light)
+
+
+# ---------------------------------------------------------------------------
+# 常用婚礼配色组合库（2026-11-05 用户②③定稿：识别后优先匹配的预设组合）
+# ---------------------------------------------------------------------------
+# 每个颜色名给锚 RGB（用于与识别色板做最近邻匹配）。金/银等金属色由
+# _metal_ok 做材质启发式把关：普通黄不判金、暖灰白不判银。
+_PRESET_ANCHORS = {
+    "Blush Pink":      (247, 202, 201),
+    "Ivory":           (244, 241, 230),
+    "Champagne":       (247, 231, 206),
+    "Dusty Rose":      (205, 150, 148),
+    "Burgundy":        (122, 60, 72),
+    "Dusty Blue":      (152, 172, 190),
+    "White":           (250, 250, 248),
+    "Silver":          (200, 204, 210),
+    "Navy Blue":       (40, 58, 98),
+    "Gold":            (198, 158, 92),
+    "Sage Green":      (158, 174, 148),
+    "Soft Gold":       (222, 196, 138),
+    "Emerald Green":   (24, 108, 82),
+    "Cream":           (240, 228, 208),
+    "Terracotta":      (201, 110, 78),
+    "Beige":           (231, 216, 188),
+    "Olive Green":     (122, 131, 85),
+    "Peach":           (247, 199, 166),
+    "Lavender":        (199, 188, 224),
+    "Mauve":           (172, 130, 140),
+    "Deep Plum":       (86, 56, 84),
+    "Butter Yellow":   (248, 230, 168),
+    "Light Blue":      (174, 214, 232),
+    "Black":           (28, 28, 30),
+    "Taupe":           (158, 140, 120),
+    "Chocolate Brown": (92, 64, 44),
+}
+# (组合名, [色名...]) —— 顺序 = 主色 → 辅色
+_PRESET_PALETTES = [
+    ("Blush & Champagne",     ["Blush Pink", "Ivory", "Champagne"]),
+    ("Dusty Rose & Burgundy", ["Dusty Rose", "Burgundy", "Ivory"]),
+    ("Dusty Blue & Silver",   ["Dusty Blue", "White", "Silver"]),
+    ("Navy & Gold",           ["Navy Blue", "Ivory", "Gold"]),
+    ("Sage & Ivory",          ["Sage Green", "Ivory", "Soft Gold"]),
+    ("Emerald & Gold",        ["Emerald Green", "Cream", "Gold"]),
+    ("Terracotta & Olive",    ["Terracotta", "Beige", "Olive Green"]),
+    ("Peach & Cream",         ["Peach", "Cream", "Champagne"]),
+    ("Lavender & Sage",       ["Lavender", "Sage Green", "Ivory"]),
+    ("Mauve & Plum",          ["Mauve", "Deep Plum", "Blush Pink"]),
+    ("Butter Yellow & Blue",  ["Butter Yellow", "Light Blue", "White"]),
+    ("Black & White",         ["Black", "White"]),
+    ("Taupe & Ivory",         ["Taupe", "Ivory", "Champagne"]),
+    ("Chocolate & Cream",     ["Chocolate Brown", "Cream", "Gold"]),
+    ("Burgundy & Navy",       ["Burgundy", "Navy Blue", "Champagne"]),
+]
+
+_PRESET_MATCH_D = 55.0     # 预设锚色 ↔ 识别色板档位的最大 RGB 距离
+
+
+def _metal_ok(cname, rgb):
+    """金属/粉彩色相 guard（用户③：避免普通黄判金、暖灰白判银、黄油黄判蜜桃）。
+
+    Gold：暖黄相（r≥g≥b）、红蓝差足够、中高饱和、亮度适中——
+          过亮过淡（黄油/香槟）或过红（陶土/铜红）都不算金；
+    Soft Gold：更浅一档的金，门槛放宽但同样排除纯白与深棕；
+    Silver：冷感低饱和中性（b≥r）——暖象牙白/香槟不算银；
+    Peach / Butter Yellow / Blush Pink / Dusty Rose：粉彩暖色互相
+          在 RGB 距离上很近（实测黄油黄 ΔE≈31 就撞上蜜桃锚），必须
+          加色相带约束才能分清。
+    其余颜色不做材质限制。
+    """
+    r, g, b = rgb
+    mx, mn = float(max(rgb)), float(min(rgb))
+    sat = 0.0 if mx <= 0 else (mx - mn) / mx
+    lum = _lum(rgb)
+    if cname == "Gold":
+        return (r >= g >= b and (r - b) >= 60 and (r - g) <= 55
+                and sat >= 0.30 and 120.0 <= lum <= 215.0)
+    if cname == "Soft Gold":
+        return (r >= g >= b and (r - b) >= 35 and (r - g) <= 45
+                and 150.0 <= lum <= 228.0)
+    if cname == "Silver":
+        return b >= r and sat <= 0.14 and lum >= 120.0
+    # 色相带 guard（h: 0-360，无彩色 -1）
+    h = _hue_of(rgb)
+    if h < 0:
+        return cname in ("White", "Ivory", "Black", "Silver")
+    if cname == "Peach":
+        return 8.0 <= h <= 42.0
+    if cname == "Butter Yellow":
+        return 40.0 <= h <= 70.0
+    if cname == "Blush Pink":
+        return h >= 320.0 or h <= 15.0
+    if cname == "Dusty Rose":
+        return h >= 330.0 or h <= 20.0
+    if cname == "Lavender":
+        return 250.0 <= h <= 310.0
+    # 通用色相一致性：彩色锚色与候选色色相差 ≤40°（挡住跨色系误配，
+    # 实测「鼠尾草锚 97° 撞上黄油黄 45°」这类案例）
+    anchor = _PRESET_ANCHORS.get(cname)
+    if anchor is not None:
+        ha = _hue_of(anchor)
+        if ha >= 0:
+            hd = abs(h - ha)
+            hd = min(hd, 360.0 - hd)
+            if hd > 40.0:
+                return False
+    return True
+
+
+def _top_sat_shades(palette, k=2):
+    """色板里最有辨识度的 k 档（按饱和度排序；并列取更深者）。"""
+    idx = sorted(range(len(palette)),
+                 key=lambda i: ((_sat_of(palette[i]), -_lum(palette[i])),),
+                 reverse=True)
+    return [palette[i] for i in idx[:k]]
+
+
+def match_preset(palette):
+    """识别色板 → 命中的预设配色组合，或 None（2026-11-05 用户③）。
+
+    规则：
+      · 预设每个颜色都要在识别色板里找到「实际出现」的最近档
+        （RGB 距离 ≤ _PRESET_MATCH_D，且通过 _metal_ok 材质判定）；
+      · 组合主色（第一个颜色）必须命中，且命中数 ≥ 2 才采用；
+      · **主色覆盖**：命中档必须覆盖色板里最有辨识度的颜色之一
+        （Top-2 饱和档）——防止「Peach & Cream」这类全粉彩组合被
+        任何带浅暖档的色板误配（陶土色板实测案例）；
+      · 返回 (组合名, [(色名, 识别色RGB), ...])——RGB 用**识别色板的实际色**
+        而非预设锚色，且只保留命中档 → 绝不展示图里不存在的颜色；
+      · 多个组合命中时：命中数多者优先，再比总距离小者。
+    """
+    if not palette:
+        return None
+    cores = _top_sat_shades(list(palette), 2)
+    best = None
+    for pname, colors in _PRESET_PALETTES:
+        matched, total_d = [], 0.0
+        for cname in colors:
+            anchor = _PRESET_ANCHORS[cname]
+            bd, bc = None, None
+            for c in palette:
+                if not _metal_ok(cname, c):
+                    continue
+                d = _dist2(c, anchor)
+                if bd is None or d < bd:
+                    bd, bc = d, c
+            if bd is not None and bd <= _PRESET_MATCH_D * _PRESET_MATCH_D:
+                matched.append((cname, bc))
+                total_d += bd
+        if len(matched) < 2 or matched[0][0] != colors[0]:
+            continue
+        if not any(any(_dist2(c, core) < 1e-6 for core in cores)
+                   for _, c in matched):
+            continue
+        key = (-len(matched), total_d)
+        if best is None or key < best[0]:
+            best = (key, (pname, matched))
+    return best[1] if best else None
+
+
+def palette_colors_of(palette):
+    """识别色板 → [{name, rgb, hex}]（每档一个，供前端编辑与结果回显）。"""
+    out = []
+    for c in (palette or []):
+        rgb = tuple(int(round(v)) for v in c)
+        out.append({"name": _nearest_color_name(rgb), "rgb": list(rgb),
+                    "hex": "#%02X%02X%02X" % rgb})
+    return out
+
+
+def complete_palette(colors, n=N_SWATCH):
+    """把色板补齐到 n 档（用户 2026-11-05：保留 4 档色块，但必须是搭配的颜色）。
+
+    不足 n 档时在**现有基色之间按亮度均匀插值**（亮→暗渐变 ladder），
+    补出来的档与基色天然同色系协调，绝不引入图片里没有的其它色系；
+    只有一个基色时向白/黑两端延伸。插入档按最近色库起名，基色保留原名
+    （预设命中名 / 客户改名不动）。返回 [{name,rgb,hex}]（亮→暗排序）。
+    """
+    out = [dict(c) for c in (colors or [])]
+    if not out:
+        return out
+    out = out[:n]
+    if len(out) >= n:
+        return out
+    # 基色按亮度 亮→暗；RGB tuple 与 colors 条目一一对应
+    pairs = sorted(((tuple(int(round(v)) for v in c["rgb"]), c) for c in out),
+                   key=lambda pc: _lum(pc[0]), reverse=True)
+    base = [p[0] for p in pairs]
+    if len(base) == 1:
+        c0 = base[0]
+        ladder = [tuple(int(round(v + (255 - v) * 0.45)) for v in c0), c0,
+                  tuple(int(round(v * 0.60)) for v in c0),
+                  tuple(int(round(v * 0.34)) for v in c0)][:n]
+        named = {c0: pairs[0][1]}
+    else:
+        # need 个插入档按「亮度间隙」大小分配到相邻基色之间
+        gaps = len(base) - 1
+        need = n - len(base)
+        weights = [_lum(base[i]) - _lum(base[i + 1]) for i in range(gaps)]
+        wsum = sum(weights) or 1.0
+        alloc = [0] * gaps
+        rem = need
+        order = sorted(range(gaps), key=lambda i: -weights[i])
+        for gi in order:
+            k = int(round(need * weights[gi] / wsum))
+            k = min(k, rem)
+            alloc[gi] = k
+            rem -= k
+        i = 0
+        while rem > 0:                      # 余数从大到小再补
+            alloc[i % gaps] += 1
+            rem -= 1
+            i += 1
+        ladder, named = [], {}
+        for i in range(gaps):
+            a, b = base[i], base[i + 1]
+            ladder.append(a)
+            named[a] = pairs[i][1]
+            for t in range(1, alloc[i] + 1):
+                f = t / float(alloc[i] + 1)
+                mid = tuple(int(round(a[j] + (b[j] - a[j]) * f)) for j in range(3))
+                ladder.append(mid)
+        ladder.append(base[-1])
+        named[base[-1]] = pairs[-1][1]
+    res = []
+    for c in ladder[:n]:
+        item = named.get(c)
+        if item is None:
+            item = {"name": _nearest_color_name(c), "rgb": list(c),
+                    "hex": "#%02X%02X%02X" % c}
+        res.append(dict(item))
+    return res
+
+
+def _hex_to_rgb(s):
+    """'#RRGGBB' → (r,g,b)；解析失败返回 None。"""
+    m = re.match(r"^#?([0-9a-fA-F]{6})$", str(s or "").strip())
+    if not m:
+        return None
+    v = int(m.group(1), 16)
+    return ((v >> 16) & 255, (v >> 8) & 255, v & 255)
 
 
 # ---------------------------------------------------------------------------
@@ -1004,61 +1282,85 @@ def _build_overlay(kicker, script, palette, W, H):
 
 
 # ---------------------------------------------------------------------------
-# 拼贴板（双列全出血 masonry）
+# 拼贴板（2026-11-05 用户①定稿：按行自适应排版，少裁切）
 # ---------------------------------------------------------------------------
-def _build_collage(bgr_imgs, W, H):
-    """两列等宽(W/2) masonry：按累计高度贪心分配，各列居中，模糊底补白。
+def _build_collage(bgr_imgs, W, H, max_open=6):
+    """开场拼贴：**按行自适应排版**（justified rows）。
 
-    返回 H 高的 RGB ndarray（已中心裁切到 9:16）。
+    规则（2026-11-05 用户需求①）：
+      · 每行内图片按**原始宽高比**等高排列——绝不拉伸、行内零裁切，
+        每张图 100% 完整展示；
+      · 行高 = W / 行内宽高比之和（行宽正好铺满 W）；把有序图片切分成
+        连续若干行，枚举所有分行方案，选「整板高度最贴近 H、行高不过薄」
+        的方案 → 板高只比 H 略大/略小；
+      · 板高 > 1.25H 时整板等比缩到 1.25H 再居中竖裁（每图纵向损失有界
+        ≤20%，远好于旧版 masonry 上下被裁成窄条）；板高 < H 时模糊底补边；
+      · 同时展示的图最多 max_open=6 张（N>6 取前 6），其余照片仍会在
+        单图满幅段全部展示；
+      · 不拉伸：所有 tile 均保持原始宽高比。
+    返回 H 高的 RGB ndarray。
     """
-    paths = list(bgr_imgs.keys())
-    cw = W // 2
-    native = {}
+    from itertools import combinations
+    paths = list(bgr_imgs.keys())[:max_open]
+    n = len(paths)
+    if n == 0:
+        return np.full((H, W, 3), (255, 255, 255), np.uint8)
+    asp = []
     for p in paths:
         ih, iw = bgr_imgs[p].shape[:2]
-        native[p] = max(2, int(round(cw * ih / max(1, iw))))
-    cols = [[], []]
-    ch = [0, 0]
-    for p in paths:
-        ci = 0 if ch[0] <= ch[1] else 1
-        cols[ci].append(p)
-        ch[ci] += native[p]
-    MAXF = 2.0
-    scale = [min(MAXF, max(1.0, H / float(max(1, ch[ci])))) for ci in range(2)]
-    heights = {}
-    for ci in range(2):
-        for p in cols[ci]:
-            heights[p] = max(2, int(round(native[p] * scale[ci])))
-    ch = [sum(heights[p] for p in cols[ci]) for ci in range(2)]
-    board_h = max(max(ch), 1)
+        asp.append(max(0.25, iw / float(max(1, ih))))
 
+    # 枚举连续分行方案（n ≤ 6、行数 ≤ 4，组合数很小）
+    best = None
+    for R in range(1, min(4, n) + 1):
+        for cut in combinations(range(1, n), R - 1):
+            bounds = [0] + list(cut) + [n]
+            rows = [list(range(bounds[i], bounds[i + 1])) for i in range(R)]
+            A = [sum(asp[i] for i in row) for row in rows]
+            hs = [W / max(0.25, a) for a in A]
+            T = sum(hs)
+            # 行高过薄（<16%H）或过厚（>70%H）都扣分：避免出现窄条观感
+            pen = sum(max(0.0, 0.16 * H - hr) + max(0.0, hr - 0.70 * H) for hr in hs)
+            score = abs(T - H) + 2.0 * pen
+            if best is None or score < best[0]:
+                best = (score, rows, hs, T)
+    _score, rows, hs, T = best
+
+    s = 1.0
+    if T > 1.25 * H:
+        s = 1.25 * H / T          # 整板略缩 → 竖裁有界（每图纵向损失 ≤20%）
+    row_h = [hr * s for hr in hs]
+    board_h = int(round(sum(row_h)))
+
+    # 模糊底（均值色）——板矮时补边、板缩时补两侧
     acc = np.zeros((96, 54, 3), np.float32)
     for im in bgr_imgs.values():
         acc += cv2.resize(im, (54, 96), interpolation=cv2.INTER_AREA).astype(np.float32)
     acc /= max(1, len(bgr_imgs))
-    backdrop = cv2.resize(acc, (W, board_h), interpolation=cv2.INTER_LANCZOS4)
+    backdrop = cv2.resize(acc, (W, max(board_h, H)), interpolation=cv2.INTER_LANCZOS4)
     backdrop = cv2.GaussianBlur(backdrop, (0, 0), 40)
     board = Image.fromarray(backdrop.astype(np.uint8)).convert("RGB")
 
-    x = 0
-    for ci, col in enumerate(cols):
-        y = (board_h - ch[ci]) // 2
-        for p in col:
-            tile = _cover(bgr_imgs[p], cw, heights[p])
-            board.paste(Image.fromarray(tile), (x, y))
-            y += heights[p]
-        x += cw
+    y = 0
+    for row, hr in zip(rows, row_h):
+        row_w = sum(asp[i] * hr for i in row)
+        x = (W - int(round(row_w))) // 2
+        for i in row:
+            tw = int(round(asp[i] * hr))
+            tile = _cover(bgr_imgs[paths[i]], tw, int(round(hr)))
+            board.paste(Image.fromarray(tile), (max(0, x), y))
+            x += tw
+        y += int(round(hr))
 
     arr = np.asarray(board).astype(np.uint8)
-    if arr.shape[0] < H:
-        canvas = cv2.GaussianBlur(cv2.resize(arr, (W, H), interpolation=cv2.INTER_AREA),
-                                  (0, 0), 60)
-        y0 = (H - arr.shape[0]) // 2
-        canvas[y0:y0 + arr.shape[0], :] = arr
-        arr = canvas
-    arr = arr.astype(np.uint8)
-    top = max(0, (arr.shape[0] - H) // 2)
-    return arr[top:top + H]
+    if arr.shape[0] >= H:
+        top = (arr.shape[0] - H) // 2          # 居中竖裁（损失有界）
+        return arr[top:top + H]
+    canvas = cv2.GaussianBlur(cv2.resize(arr, (W, H), interpolation=cv2.INTER_AREA),
+                              (0, 0), 60)
+    y0 = (H - arr.shape[0]) // 2
+    canvas[y0:y0 + arr.shape[0], :] = arr
+    return canvas
 
 
 # ---------------------------------------------------------------------------
@@ -1085,11 +1387,12 @@ W0, H0 = 1080, 1920
 def render_collage_palette(images, out_path, ratio="9x16", fps=30,
                            title="", subtitle="", show_text=True, progress=None,
                            font=None, palette_override=None, forced_family=None,
-                           cfg=None):
-    """N(≥3) 张照片 → 双列拼贴开场(橘色色块) + 逐张单图（仅画面，无音轨）。
+                           cfg=None, palette_edit=None):
+    """N(≥3) 张照片 → 按行自适应拼贴开场 + 逐张单图（仅画面，无音轨）。
 
-    palette_override: 传入 [(r,g,b),...] 则跳过默认橘色系、改用该色板
-    （封面/样片定稿用；不传则默认 Terracotta & Rust 橘色系）。
+    palette_override: 传入 [(r,g,b),...] 则跳过识别、直接用该色板（封面样片）。
+    palette_edit:     客户手动编辑 {"name": "…", "colors": [{"name","rgb"|"hex"}, …]}
+                      ——最后生效，覆盖识别/预设结果（2026-11-05 用户③）。
     """
     paths = [p for p in (images or []) if p and os.path.isfile(p)]
     if len(paths) < 3:
@@ -1111,6 +1414,8 @@ def render_collage_palette(images, out_path, ratio="9x16", fps=30,
         # 显式定稿色板（如封面 Terracotta & Rust 四色）
         palette = [tuple(int(x) for x in c) for c in palette_override][:N_SWATCH]
         palette_name = name_palette(palette)
+        preset_hit = match_preset(palette)
+        ai_hint = None
     else:
         # 2026-11-03 15:06 用户反转：色块按上传图片自动识别匹配，
         # 不再套用模版固定橘色系；蓝/绿等冷色如实出现。
@@ -1119,12 +1424,53 @@ def render_collage_palette(images, out_path, ratio="9x16", fps=30,
         palette = detect_palette(list(bgr.values()), N_SWATCH,
                                  forced_family=forced_family)
         palette_name = name_palette(palette)
-        # 2026-11-04 用户：接入火山方舟视觉模型做语义识别——精确 4 档 RGB 仍由
-        # OpenCV 给出（零偏差），AI 只提供自然品牌化命名与语义族；无 Key / 模型
-        # 未开通 / 解析失败一律回退 OpenCV 命名（palette_name 不变）。
-        ai_hint = ai_palette_hint(list(bgr.values()), cfg) if cfg is not None else None
-        if ai_hint:
-            palette_name = ai_hint["palette_name"]
+        # 2026-11-05 用户③：优先匹配常用配色组合（只展示图中实际出现的颜色、
+        # 色块用识别实际色，不因预设强加不存在的第三色）。
+        preset_hit = match_preset(palette)
+        ai_hint = None
+        if preset_hit:
+            palette_name = preset_hit[0]
+        else:
+            # 无预设命中 → 用识别色自动组名（如 Ivory & Burgundy）；
+            # AI 语义命名仅在无预设时兜底（有 Key 时），不覆盖预设名。
+            ai_hint = ai_palette_hint(list(bgr.values()), cfg) if cfg is not None else None
+            if ai_hint:
+                palette_name = ai_hint["palette_name"]
+
+    # 每档颜色名 + hex（前端编辑与结果回显用；预设命中时用命中档的实际色）
+    if preset_hit:
+        palette_colors = []
+        for n_, c_ in preset_hit[1]:
+            rgb = tuple(int(round(v)) for v in c_)
+            palette_colors.append({"name": n_, "rgb": list(rgb),
+                                   "hex": "#%02X%02X%02X" % rgb})
+    else:
+        palette_colors = palette_colors_of(palette)
+
+    # 2026-11-05 用户③：客户手动编辑最后生效（色板名 / 单色名 / 色块）
+    if palette_edit:
+        name_in = str(palette_edit.get("name") or "").strip()
+        new_cols = []
+        for c in (palette_edit.get("colors") or [])[:N_SWATCH]:
+            if not isinstance(c, dict):
+                continue
+            rgb = c.get("rgb") or _hex_to_rgb(c.get("hex"))
+            if not rgb:
+                continue
+            rgb = tuple(int(round(float(v))) for v in rgb)
+            new_cols.append({"name": (str(c.get("name") or "").strip()
+                                      or _nearest_color_name(rgb)),
+                             "rgb": list(rgb),
+                             "hex": "#%02X%02X%02X" % rgb})
+        if new_cols:
+            palette = [tuple(c["rgb"]) for c in new_cols]
+            palette_colors = new_cols
+        if name_in:
+            palette_name = name_in
+
+    # 2026-11-05 用户：保留 4 档色块——预设/编辑色不足 4 档时，
+    # 用命中色自身的浅/深变体补齐（同色系搭配，不引入其它色系）。
+    palette_colors = complete_palette(palette_colors)
 
     # 2026-11-02 修 R/B 反转（红线 13：PIL/ffmpeg 走 RGB，cv2 出 BGR）：
     # 旧版把 BGR 数组直接塞进 Image.fromarray / rgb24 管线，成片红蓝整体
@@ -1134,9 +1480,15 @@ def render_collage_palette(images, out_path, ratio="9x16", fps=30,
     # 文字（受 show_text 控制；色块始终渲染）
     # 副标题留空 → 用自动识别出的色板名（如 "Terracotta & Sand"）；客户手填则用客户的；
     # 显式 override 时则为 override 色板名。
+    # 2026-11-05 用户③：色块以 palette_colors 为准（预设命中=组合的实际命中色、
+    # 手动编辑=客户色）→ 名称与色块严格一致；无预设时=识别 4 档阶梯。
     sub_in = (subtitle or "").strip()
     kicker = (title or "").strip() if show_text else ""
     script = (sub_in or palette_name) if show_text else ""
+    swatches = [tuple(int(round(v)) for v in c["rgb"]) for c in palette_colors]
+    if not swatches:
+        swatches = list(palette)
+    palette = swatches
     text_layer, pill_layers = _build_overlay(kicker, script, palette, W, H)
     text_np = np.asarray(text_layer)
     pill_nps = [np.asarray(l) for l in pill_layers]
@@ -1202,7 +1554,10 @@ def render_collage_palette(images, out_path, ratio="9x16", fps=30,
         progress(100, 100, "Done")
     return {"video": out_path, "secs": round(total_secs, 2),
             "images": len(paths), "ratio": ratio, "palette": palette,
-            "palette_name": palette_name, "family": forced_family,
+            "palette_name": palette_name,
+            "palette_colors": palette_colors,
+            "preset": preset_hit[0] if preset_hit else None,
+            "family": forced_family,
             "ai_used": bool(ai_hint),
             "palette_ai_name": (ai_hint or {}).get("palette_name"),
             "palette_ai_family": (ai_hint or {}).get("family"),

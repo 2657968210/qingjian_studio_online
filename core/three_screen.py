@@ -407,52 +407,11 @@ def render_three_screen(images, out_path, ratio="9x16", fps=30, progress=None,
         pi, kind, param, zs, focal = SINGLES[idx - 1]
         img = imgs[pi]
         ih, iw = img.shape[:2]
-        fx_px, fy_px = focal[0] * iw, focal[1] * ih
-        e = ease_flow(i / (n - 1)) if n > 1 else 1.0
-        if kind == "push":
-            # 纯推近（一图一手法）：起幅 = max(zs, min_zoom_centre)——focal
-            # 偏边的图起帧也把重点框进画面中心（「先切重点」），然后缓慢推近，
-            # 窗口中心全程钉在重点上。
-            z0 = max(zs, imn.min_zoom_centre(ih, iw, ASP_F, focal))
-            z = z0 * (1.0 + param * e)
-            w, h = imn.focal_window(ih, iw, ASP_F, z, focal)[2:4]
-            cx = min(max(fx_px, w / 2), iw - w / 2)
-            cy = min(max(fy_px, h / 2), ih - h / 2)
-            return render_win(img, cx - w / 2, cy - h / 2, w, h, W, H)
-        if kind == "pull":
-            # 纯拉远（CS zoom|out 家族，2026-10-29 引入）：起幅取
-            # max(PULL_Z0, min_zoom_centre)——与 push 同口径，focal 偏边的图
-            # 起帧也把重点框进画面中心，然后拉远到全幅揭示环境。
-            z0 = max(param, imn.min_zoom_centre(ih, iw, ASP_F, focal))
-            z = z0 + (1.0 - z0) * e
-            w, h = imn.focal_window(ih, iw, ASP_F, z, focal)[2:4]
-            cx = min(max(fx_px, w / 2), iw - w / 2)
-            cy = min(max(fy_px, h / 2), ih - h / 2)
-            return render_win(img, cx - w / 2, cy - h / 2, w, h, W, H)
-        if kind == "rot":
-            # 微旋（低对比平铺图）：起幅足以让重点居中，绕重点 ±param 度缓动
-            z = max(1.0, imn.min_zoom_centre(ih, iw, ASP_F, focal))
-            x0, y0, w0, h0 = imn.focal_window(ih, iw, ASP_F, z, focal)
-            ang = (e - 0.5) * 2.0 * param
-            return rot_render(img, x0, y0, w0, h0, W, H, ang)
-        if kind in ("panL", "panR"):
-            # 纯横扫（2026-10-28 改）：起帧窗口以重点为中心（先切重点），
-            # 然后向该侧单向扫（行程 = 裁窗宽 × param，受该侧余量限制）——
-            # 旧版是跨焦点往返式，起帧重点不在画面中心。
-            # 2026-10-29：起幅 zoom 补 min_zoom_centre（与 push 同口径）——
-            # focal 偏边的图 zoom=1/1.18 时窗口钳在画幅内、重点无法居中；
-            # 放大起幅让窗口装得下「以重点为中心」，产品起帧即居中。
-            z_pan = max(zs, imn.min_zoom_centre(ih, iw, ASP_F, focal))
-            _, y0, w0, h0 = imn.focal_window(ih, iw, ASP_F, z_pan, focal)
-            x0 = min(max(fx_px - w0 / 2, 0.0), iw - w0)
-            if kind == "panR":
-                trav = max(8.0, min(param * w0, (iw - w0 - x0) - 6))
-                x = x0 + trav * e
-            else:
-                trav = max(8.0, min(param * w0, x0 - 6))
-                x = x0 - trav * e
-            return render_win(img, x, y0, w0, h0, W, H)
-        raise ValueError(kind)
+        # 用户 2026-11-05：Three-Panel 单图显示统一不使用运镜 →
+        # 固定取景（zoom=1.0、主体居中、零位移），相邻镜之间的交叉溶解仍是剪辑、
+        # 不是运镜，保留。
+        x, y, w, h = imn.focal_window(ih, iw, ASP_F, 1.0, focal)
+        return render_win(img, x, y, w, h, W, H)
 
     def fx_dissolve(a, b, t):
         e = smooth(t)

@@ -200,8 +200,16 @@ def warp(canvas, cam, vw, vh):
 FAMILIES = ("h", "v", "diag", "push", "pull")
 
 
-def make_move(family, canvas, vw, vh, direction=1, zoom=None, strength=1.0):
-    """构造 cam_fn(t) —— 平移行程自动按画布余量收敛，绝不顶到边界卡住。"""
+def make_move(family, canvas, vw, vh, direction=1, zoom=None, strength=1.0,
+              diag_cross=False):
+    """构造 cam_fn(t) —— 平移行程自动按画布余量收敛，绝不顶到边界卡住。
+
+    diag_cross=True 时对角平移改为「反 Y」轨迹：
+      direction>0  → 左下→右上 (BL→TR)
+      direction<0  → 右下→左上 (BR→TL)
+    默认 diag_cross=False 维持旧口径（direction>0=左上→右下，direction<0=右下→左上），
+    Decor Showcase 不受影响。
+    """
     ax, ay = canvas.w * 0.5, canvas.h * 0.5
 
     if family in ("h", "v", "diag"):
@@ -230,6 +238,8 @@ def make_move(family, canvas, vw, vh, direction=1, zoom=None, strength=1.0):
             py = -amp_y + 2.0 * amp_y * e
             if direction < 0:
                 px, py = -px, -py
+            if family == "diag" and diag_cross and direction > 0:
+                py = -py                       # 反 Y：左上→右下 变 左下→右上
             return Cam(z, ax, ay, panx=px, pany=py, parallax=par)
         return fn
 

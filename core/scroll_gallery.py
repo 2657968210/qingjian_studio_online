@@ -269,18 +269,14 @@ def render_scroll(images, out_path, ratio="9x16", fps=30,
                 frame[:, SIDE_MARGIN:SIDE_MARGIN + CELL_W, :] = _strip(col_l_np, group_l, off_l, VIEW_H)
                 frame[:, x_r0:x_r1, :] = _strip(col_r_np, group_r, off_r, VIEW_H)
             else:
-                # 段二：逐张单图全屏 + 慢推近
-                k = i - scroll_frames
-                img_i = k // single_frames
-                pp = (k % single_frames) / max(single_frames - 1, 1)
-                e = pp * pp * (3 - 2 * pp)                           # smoothstep 缓动
-                mot, focal, par, pzoom = SHOTS[img_i]
-                _kw = ({"push": par} if mot == "push"
-                       else {"pan": par} if mot in ("panL", "panR")
-                       else {"rot": par} if mot == "rot" else {})
-                frame = imn.render_single_shot(imgs_bgr[img_i], mot, focal, e,
-                                              VIEW_W, VIEW_H,
-                                              pan_zoom=pzoom, **_kw)
+                # 段二：逐张单图全屏「静态展示」（用户 2026-11-05：
+                # Wedding Color Inspiration 单图显示统一不使用运镜 → 固定取景、零位移）
+                img_i = (i - scroll_frames) // single_frames
+                ih, iw = imgs_bgr[img_i].shape[:2]
+                focal = ANS[img_i]["focal_n"]
+                x, y, w, h = imn.focal_window(ih, iw, ASP_F, 1.0, focal)
+                bgr = imn._render_win(imgs_bgr[img_i], x, y, w, h, VIEW_W, VIEW_H)
+                frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
             proc.stdin.write(frame.tobytes())
             if progress and (i % 30 == 0):
                 progress(int(10 + 80 * i / max(total_frames, 1)), 100, "Rendering")

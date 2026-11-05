@@ -2457,6 +2457,7 @@ class Handler(SimpleHTTPRequestHandler):
                     _vo = body.get("voiceover") or {}
                     _cap = body.get("captions") or {}
                     vo_meta = None
+                    vo_error = None
                     cap_meta = None
                     if _cap.get("on") and not _vo.get("on"):
                         try:
@@ -2492,8 +2493,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -2510,7 +2514,8 @@ class Handler(SimpleHTTPRequestHandler):
                             # 诊断字段（2026-11-04）：便于确认线上跑的是哪版编排逻辑
                             "engine": "cardpan-25d-2026-11-04",
                             "durs": [round(float(m.get("dur") or 0), 2) for m in plan],
-                            "captions": bool(cap_meta), "voiceover": bool(vo_meta)}
+                            "captions": bool(cap_meta), "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
@@ -2546,6 +2551,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.send_json(
                         {"error": "This template needs at least 2 photos — upload a few collection photos first"}, 400)
                 labels = [str(x or "") for x in (body.get("labels") or [])]
+                captions = [str(x or "") for x in (body.get("captions") or [])]
                 shots = [str(x or "") for x in (body.get("shots") or [])]
                 focuses = body.get("focuses") or []
                 from core.card_pan import norm_ratio as _norm_ratio
@@ -2567,6 +2573,7 @@ class Handler(SimpleHTTPRequestHandler):
                                           title=str(body.get("title") or ""),
                                           ratio=ratio, fps=fps, progress=prog,
                                           shots=shots, focuses=focuses,
+                                          captions=captions,
                                           font=body.get("font"))
                     secs = res["secs"]
                     _bf = None
@@ -2593,6 +2600,7 @@ class Handler(SimpleHTTPRequestHandler):
                     # 任何失败只打印，仍交付无口播成片。
                     vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -2614,8 +2622,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 fallback_bgm=_bf if _bf and os.path.isfile(_bf) else None)
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -2632,6 +2643,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "captions": bool(str(body.get("title") or "").strip())
                                         or bool([x for x in labels if str(x or "").strip()]),
                             "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error,
                             "ratio": res.get("ratio")}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
@@ -2701,6 +2713,7 @@ class Handler(SimpleHTTPRequestHandler):
                     _vo = body.get("voiceover") or {}
                     _cap = body.get("captions") or {}
                     vo_meta = None
+                    vo_error = None
                     cap_meta = None
                     if _cap.get("on") and not _vo.get("on"):
                         try:
@@ -2738,8 +2751,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -2752,7 +2768,8 @@ class Handler(SimpleHTTPRequestHandler):
                         video = "/media/scrollgallery/%s" % base
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
-                            "captions": bool(cap_meta), "voiceover": bool(vo_meta)}
+                            "captions": bool(cap_meta), "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
@@ -2831,6 +2848,7 @@ class Handler(SimpleHTTPRequestHandler):
                     # 任何失败只打印，仍交付无口播成片。
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if _vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -2850,8 +2868,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -2865,9 +2886,55 @@ class Handler(SimpleHTTPRequestHandler):
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(show_text and (title.strip() or subtitle.strip())),
-                            "voiceover": bool(vo_meta)}
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
+
+            if p == "/api/palette-preview":
+                """Color Palette 色板预览（2026-11-05 用户③）。
+
+                按上传图识别主色 + 预设配色组合匹配，返回可编辑色板：
+                {name, preset, family, palette, colors:[{name, rgb, hex}]}。
+                客户前端可改名称/单色名/色块后随渲染提交（palette_edit）。
+                纯 OpenCV（复用上传画像投票），零 AI、毫秒级返回。
+                入参: srcs(必填) / project(可选)。
+                """
+                body = self.read_body_json()
+                _psrcs = [s for s in (body.get("srcs") or []) if s and os.path.isfile(s)]
+                if not _psrcs:
+                    return self.send_json({"error": "no photos"}, 400)
+                from core import collage_palette as cpl
+                _pfam = None
+                try:
+                    _ppid = body.get("project")
+                    if _ppid:
+                        _pj = load_project(_ppid)
+                        _pmap = {e.get("path"): e for e in (_pj.get("uploads") or [])}
+                        _profs = [(_pmap.get(s) or {}).get("color_profile") for s in _psrcs]
+                        _have = [q for q in _profs if isinstance(q, dict)]
+                        if _have:
+                            _pfam = cpl.pick_family(_have)
+                except BaseException:
+                    traceback.print_exc()
+                _pimgs = [cpl._imread_bgr(s) for s in _psrcs]
+                _ppal = cpl.detect_palette(_pimgs, cpl.N_SWATCH, forced_family=_pfam)
+                _phit = cpl.match_preset(_ppal)
+                if _phit:
+                    _pcolors = [{"name": _n, "rgb": [int(round(v)) for v in _c],
+                                 "hex": "#%02X%02X%02X" % tuple(int(round(v)) for v in _c)}
+                                for _n, _c in _phit[1]]
+                    _pname = _phit[0]
+                else:
+                    _pcolors = cpl.palette_colors_of(_ppal)
+                    _pname = cpl.name_palette(_ppal)
+                # 2026-11-05 用户：保留 4 档色块（不足用同色系浅/深变体补齐）
+                _pcolors = cpl.complete_palette(_pcolors)
+                return self.send_json({"name": _pname,
+                                       "preset": _phit[0] if _phit else None,
+                                       "family": _pfam,
+                                       "palette": [list(c) for c in _ppal],
+                                       "colors": _pcolors})
 
             if p == "/api/collage-palette":
                 """婚礼 Look 拼贴 + 自动主色识别模版（Wedding Look Collage）。
@@ -2926,6 +2993,9 @@ class Handler(SimpleHTTPRequestHandler):
                     fam_forced = None
                 jid = new_job("collage_palette")
 
+                # 2026-11-05 用户③：客户手动编辑的色板（名称/单色名/色块）
+                palette_edit = body.get("palette_edit") or None
+
                 def work():
                     from core import collage_palette as cp
                     out_dir = os.path.join(project_path(pid) if pid else DATA, "collagepalette")
@@ -2941,6 +3011,7 @@ class Handler(SimpleHTTPRequestHandler):
                                                     show_text=show_text, progress=prog,
                                                     font=body.get("font"),
                                                     forced_family=fam_forced,
+                                                    palette_edit=palette_edit,
                                                     cfg=dict(CONFIG.get("storyboard_api") or {}))
                     secs = res["secs"]
                     # 2026-11-04 诊断辅助：把逐图画像带回结果，客户反馈
@@ -2965,6 +3036,7 @@ class Handler(SimpleHTTPRequestHandler):
                             traceback.print_exc()
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if _vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -2984,8 +3056,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3000,6 +3075,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(show_text and (title.strip() or subtitle.strip())),
                             "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error,
                             "palette": res.get("palette"),
                             "palette_name": res.get("palette_name"),
                             "palette_family": res.get("family"),
@@ -3101,6 +3177,7 @@ class Handler(SimpleHTTPRequestHandler):
                     # 字幕烧中下（sub_pos="lower"）；任何失败只打印，仍交付无口播成片。
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if _vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -3120,8 +3197,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3135,7 +3215,8 @@ class Handler(SimpleHTTPRequestHandler):
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(cap_text),
-                            "voiceover": bool(vo_meta)}
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
@@ -3289,6 +3370,7 @@ class Handler(SimpleHTTPRequestHandler):
                     srcs = srcs[:8]
                 skus = body.get("skus") or []
                 nums = body.get("nums") or []
+                captions = body.get("captions") or []
                 # 开场标题页文字（第一幕）可填：main 默认 TOP 5，sub 留空不画
                 title_main = (body.get("title_main") or "").strip() or "TOP 5"
                 title_sub = (body.get("title_sub") or "").strip() or None
@@ -3317,12 +3399,14 @@ class Handler(SimpleHTTPRequestHandler):
                             traceback.print_exc()
                     res = t5.render_top5(srcs, out, skus=skus, nums=nums, bgm=_bf,
                                          ratio=ratio, fps=fps, progress=prog,
-                                         title_main=title_main, title_sub=title_sub)
+                                         title_main=title_main, title_sub=title_sub,
+                                         captions=captions)
                     secs = res["secs"]
                     # 口播后处理（step4 Captions & Voiceover 可选）：三段式配音+字幕。
                     # 字幕烧中下（sub_pos="lower"）；任何失败只打印，仍交付无口播成片。
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if _vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -3342,8 +3426,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3357,7 +3444,8 @@ class Handler(SimpleHTTPRequestHandler):
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
                             "moves": res.get("moves"),
-                            "voiceover": bool(vo_meta)}
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
@@ -3415,6 +3503,7 @@ class Handler(SimpleHTTPRequestHandler):
                     # 字幕烧中下（sub_pos="lower"）；任何失败只打印，仍交付无口播成片。
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if _vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -3434,8 +3523,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3448,7 +3540,8 @@ class Handler(SimpleHTTPRequestHandler):
                         video = "/media/carousel/%s" % base
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
-                            "voiceover": bool(vo_meta)}
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
@@ -3532,6 +3625,7 @@ class Handler(SimpleHTTPRequestHandler):
                     # 两层文字不重叠。任何失败只打印，仍交付无口播成片。
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if _vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -3551,8 +3645,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3566,7 +3663,8 @@ class Handler(SimpleHTTPRequestHandler):
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
                             "captions": bool(show_text and text.strip()),
-                            "voiceover": bool(vo_meta)}
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
@@ -3682,6 +3780,7 @@ class Handler(SimpleHTTPRequestHandler):
                     # 烧中下（sub_pos="lower"），不与 44% 屏高的持久字幕叠。失败不影响交付。
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
+                    vo_error = None
                     if _vo.get("on"):
                         try:
                             from core import voiceover as _volib
@@ -3701,8 +3800,11 @@ class Handler(SimpleHTTPRequestHandler):
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
                                 os.replace(_vo_out, out)
-                        except BaseException:
+                        except BaseException as _vo_exc:
                             traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果，
+                            # 不再只打控制台 traceback（内网排查口播不可用必需）。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3720,7 +3822,8 @@ class Handler(SimpleHTTPRequestHandler):
                             "rot_shots": res.get("rot_shots"),
                             "pan_dirs": res.get("pan_dirs"),
                             "captions": bool(show_text and text.strip()),
-                            "voiceover": bool(vo_meta)}
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 

@@ -90,9 +90,10 @@ def title_frame(W, H, main="TOP 5", sub=None):
     return np.asarray(img)
 
 
-def overlay(frame_rgb, num_str, style, W, H):
+def overlay(frame_rgb, num_str, style, W, H, cap=None):
     """Bottom-left maroon number block (centred) + SKU white text to its right,
-    vertically centred, no plate / no filename."""
+    vertically centred, no plate / no filename. Optional `cap` is an extra free
+    caption line burned bottom-centre (user 2026-11-05: per-photo annotation)."""
     img = Image.fromarray(frame_rgb)
     ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(ov)
@@ -115,6 +116,18 @@ def overlay(frame_rgb, num_str, style, W, H):
         tx = bx0 + bw + 24
         ty = (by1 - 50.0) - (tb[1] + tb[3]) / 2.0
         d.text((tx, ty), style, font=sf, fill=(255, 255, 255),
+               stroke_width=2, stroke_fill=(0, 0, 0))
+    # 可选 Caption：底部居中、白色粗体 + 黑描边（与 SKU 同款可读风格），
+    # 位置抬到编号块上方，避开左下编号区。
+    if cap:
+        cf = pick_font(52, bold=True)
+        cw = d.textlength(cap, font=cf)
+        if cw > W - 80:
+            cf = pick_font(max(28, int(52 * (W - 80) / cw)), bold=True)
+            cw = d.textlength(cap, font=cf)
+        cx = (W - cw) / 2.0
+        cy = H - 330.0 - (cf.size if hasattr(cf, "size") else 52)
+        d.text((cx, cy), cap, font=cf, fill=(255, 255, 255),
                stroke_width=2, stroke_fill=(0, 0, 0))
     return np.asarray(Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB"))
 
@@ -234,7 +247,7 @@ def assign_moves(anlist, aspects, fixed=None):
 
 def render_top5(srcs, out, skus=None, nums=None, bgm=None, ratio="9x16", fps=30,
                 progress=None, title_main="TOP 5", title_sub=None, silent=False,
-                force_moves=None):
+                force_moves=None, captions=None):
     if progress is None:
         progress = lambda d, t, m="": None
     # Template default: shot 1 pans left->right, shot 4 pans bottom-right->top-left.
@@ -288,10 +301,11 @@ def render_top5(srcs, out, skus=None, nums=None, bgm=None, ratio="9x16", fps=30,
         move = moves[si]
         style = skus[si] if si < len(skus) and skus[si].strip() else ""
         ns = num_str(si)
+        cap = captions[si] if (captions and si < len(captions)) else ""
         for k in range(SEG_F):
             p = ease_flow(k / float(SEG_F - 1))
             fr = render_move(img, move, an["focal_n"], p, W, H)
-            put(overlay(fr, ns, style, W, H))
+            put(overlay(fr, ns, style, W, H, cap=cap))
         progress(8 + int(82 * (si + 1) / n), 100, "Shot %d/%d (%s)" % (si + 1, n, move))
     proc.stdin.close()
     rc = proc.wait(timeout=600)

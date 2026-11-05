@@ -8,12 +8,13 @@
 
 编排规则
 --------
-· 单图：默认凑满 ~15s（card_pan.MAX_TOTAL 红线）——按图片特征选 5 个不重复
-  家族（横幅先水平、竖幅先垂直、细节多先推近、开阔先拉远），方向交替，
-  每镜 ~3.0s；
-· 多图(1~8)：每图 ~8s（3 个不重复运镜），相邻图之间首家族不重样，
-  硬切衔接（与 2.5D 参考片一致）；
-· 平移行程按画布余量自动收敛（decor_cam.make_move 内置），绝不顶边界卡住。
+· 单图：固定 5 镜、每镜 ~3s、整片 ~15s（card_pan.MAX_TOTAL 红线），
+  运镜序列严格按用户 2026-11-05 指定、互不重复：左下→右上、右下→左上、
+  左→右、右→左、结尾拉远；整体舒缓不抢戏；
+· 多图(1~8)：每图 ~8s（3 个不重复运镜），从同一固定池按偏移取值，
+  相邻图起始不重样，硬切衔接（与 2.5D 参考片一致）；
+· 平移行程按画布余量自动收敛（decor_cam.make_move 内置），绝不顶边界卡住；
+  对角两种朝向由 make_move(diag_cross=True) 支持。
 
 接口
 ----
@@ -38,47 +39,38 @@ _TAG = {"h": "pan-h", "v": "pan-v", "diag": "pan-diag",
         "push": "push-in", "pull": "pull-out"}
 
 
+# 用户 2026-11-05 指定的「固定运镜序列」：运镜不重复 + 明确方向 + 结尾拉远。
+# 每个元素 = (family, direction, diag_cross)：
+#   diag + direction>0 + diag_cross → 左下→右上 (BL→TR)
+#   diag + direction<0 + diag_cross → 右下→左上 (BR→TL)
+#   h    + direction>0              → 左→右 (L→R)
+#   h    + direction<0              → 右→左 (R→L)
+#   pull                            → 拉远（结尾揭示全貌）
+_PRODUCT_POOL = [
+    ("diag", 1, True),
+    ("diag", -1, True),
+    ("h", 1, False),
+    ("h", -1, False),
+    ("pull", 1, False),
+]
+
+
 def plan_single(meta, vw, vh, n, avoid=None):
-    """按单张图特征选 n 个不重复的 2.5D 运镜家族。
+    """Product Spotlight 固定运镜序列（用户 2026-11-05）。
 
-    评分口径与 decor_cam.plan_moves 一致（内容契合 + 行程可得性），
-    额外支持 avoid：上一张图的末家族强惩罚，保证相邻图不重样。
-    行程不足的平移家族直接出局（避免「画面卡住」）；可用家族不足 n 时
-    自动收缩 n、拉长单镜时长，宁少勿滥。
-    返回 [(family, direction), ...]。
+    不再按图片特征打分，直接取 _PRODUCT_POOL 里的前 n 个不重复运镜，
+    保证整段运镜不重复、方向明确、结尾拉远。avoid 仅用于多图模式让相邻图
+    起始不重样（见 render_25d）。
+    返回 [(family, direction, diag_cross), ...]。
     """
-    a, edge = meta.aspect, meta.edge
-    sx, sy = meta.slack(1.12, vw, vh)
-    score = {
-        "h": 1.0 + 0.8 * min(1.0, sx / 240.0) + (0.5 if a >= 1.12 else 0.0),
-        "v": 1.0 + 0.8 * min(1.0, sy / 240.0) + (0.5 if a <= 0.85 else 0.0),
-        "diag": 0.9 + 0.5 * min(1.0, sx / 240.0) + 0.5 * min(1.0, sy / 240.0),
-        "push": 1.0 + 1.3 * edge + (0.2 if a >= 0.9 else 0.0),
-        "pull": 1.0 + 1.3 * (1.0 - edge),
-    }
-    # 硬门槛：没有行程的平移家族不用
-    if sx < 55.0:
-        score["h"] = -99.0
-    if sy < 50.0:
-        score["v"] = -99.0
-    if sx < 55.0 or sy < 50.0:
-        score["diag"] = -99.0
-    if avoid:
-        score[avoid] = score.get(avoid, 0.0) - 3.0
-
-    avail = [f for f in dc.FAMILIES if score[f] > -50.0]
-    if not avail:                      # 极端兜底：全没行程时至少给个推近
-        avail = ["push"]
-    n = max(1, min(int(n), len(avail)))
-    order = sorted(avail, key=lambda f: score[f], reverse=True)[:n]
-
-    plan = []
-    for k, fam in enumerate(order):
-        if fam in ("push", "pull"):
-            plan.append((fam, 1))
-        else:
-            plan.append((fam, 1 if k % 2 == 0 else -1))
-    return plan
+    offset = 0
+    if avoid is not None:
+        try:
+            offset = (_PRODUCT_POOL.index(avoid) + 1) % len(_PRODUCT_POOL)
+        except ValueError:
+            offset = 0
+    n = max(1, min(int(n), len(_PRODUCT_POOL)))
+    return [_PRODUCT_POOL[(offset + k) % len(_PRODUCT_POOL)] for k in range(n)]
 
 
 def render_25d(images, out_path, ratio="9x16", fps=30, target_secs=None,
@@ -93,16 +85,17 @@ def render_25d(images, out_path, ratio="9x16", fps=30, target_secs=None,
     OW, OH = cp.ratio_size(ratio)
     vw, vh = int(OW), int(OH)
 
-    # 1) 编排：[(path, family, direction, dur), ...]
+    # 1) 编排：[(path, family, direction, diag_cross, dur), ...]
     seq = []
     if len(paths) == 1:
         meta = dc.probe(paths[0], vw, vh)
         target = float(target_secs or SINGLE_SECS)
         target = min(target, cp.MAX_TOTAL)
-        n = max(3, min(5, int(round(target / 3.0))))
+        # 单图固定 5 镜（与 _PRODUCT_POOL 一致），每镜 ~3s → 整片 ~15s，运镜舒缓
+        n = min(5, len(_PRODUCT_POOL))
         dur = target / n
-        for fam, d in plan_single(meta, vw, vh, n):
-            seq.append((paths[0], fam, d, dur))
+        for fam, d, cross in plan_single(meta, vw, vh, n):
+            seq.append((paths[0], fam, d, cross, dur))
     else:
         per = float(per_image_secs or PER_IMAGE_SECS)
         n = max(2, min(4, int(round(per / 3.0))))
@@ -111,8 +104,8 @@ def render_25d(images, out_path, ratio="9x16", fps=30, target_secs=None,
         for p in paths:
             meta = dc.probe(p, vw, vh)
             fams = plan_single(meta, vw, vh, n, avoid=avoid)
-            for fam, d in fams:
-                seq.append((p, fam, d, dur))
+            for fam, d, cross in fams:
+                seq.append((p, fam, d, cross, dur))
             avoid = fams[-1][0]
 
     total_secs = sum(m[3] for m in seq)
@@ -126,11 +119,12 @@ def render_25d(images, out_path, ratio="9x16", fps=30, target_secs=None,
         done = 0
         cur_path = None
         cv_ = None
-        for idx, (p, fam, direction, dur) in enumerate(seq):
+        for idx, (p, fam, direction, cross, dur) in enumerate(seq):
             if p != cur_path:
                 cur_path = p
                 cv_ = dc.build_canvas(p, vh, vw)
-            cam_fn = dc.make_move(fam, cv_, vw, vh, direction=direction)
+            cam_fn = dc.make_move(fam, cv_, vw, vh, direction=direction,
+                                  diag_cross=cross)
             cut_frames = max(2, int(round(dur * fps)))
             for i in range(cut_frames):
                 t = i / max(cut_frames - 1, 1)
@@ -146,9 +140,15 @@ def render_25d(images, out_path, ratio="9x16", fps=30, target_secs=None,
 
     if progress:
         progress(100, 100, "Done")
+    # 运镜标签：明确写出方向（左下→右上 / 右下→左上 / 左→右 / 右→左 / 拉远）
+    def _move_tag(fam, d, cross):
+        if fam == "pull":
+            return "pull-out (拉远)"
+        if fam == "diag":
+            return "pan-diag BL→TR" if (d > 0) else "pan-diag BR→TL"
+        return "pan-h L→R" if d > 0 else "pan-h R→L"
     moves = [{"move": fam, "dir": d, "dur": round(dur, 2),
-              "tag": _TAG[fam] + ("" if fam in ("push", "pull")
-                                  else (" →" if d > 0 else " ←"))}
-             for (_, fam, d, dur) in seq]
+              "tag": _move_tag(fam, d, cross)}
+             for (_, fam, d, cross, dur) in seq]
     return {"video": out_path, "secs": round(total_secs, 2),
             "images": len(paths), "ratio": ratio, "moves": moves}

@@ -23,6 +23,8 @@ const ST = {
   focuses: [],       // Collection Showcase: per-photo detail focus bbox [x0,y0,x1,y1] or null
   skus: [],          // TOP 5 Countdown: style SKU per photo (optional, drawn beside the rank number)
   nums: [],          // TOP 5 Countdown: rank number per photo (optional, blank = auto countdown n..01)
+  caps: [],          // Collection Showcase & TOP 5 Countdown: per-photo free caption (optional)
+  paletteCols: null, // Color Palette Showcase: editable swatches [{name, hex}] from /api/palette-preview
   _recogDone: {},     // paths already sent for auto-label recognition (avoid duplicate calls)
   _recogPend: {},     // paths currently being recognized (show "Recognizing…" placeholder)
   template: null,    // selected template object
@@ -428,6 +430,8 @@ function renderPhotos() {
   ST.skus.length = ST.photos.length;
   while (ST.nums.length < ST.photos.length) ST.nums.push("");
   ST.nums.length = ST.photos.length;
+  while (ST.caps.length < ST.photos.length) ST.caps.push("");
+  ST.caps.length = ST.photos.length;
   const n = ST.photos.length;
   $("#photos").innerHTML = ST.photos.map((p, i) => {
     const shotSel = multi
@@ -458,6 +462,10 @@ function renderPhotos() {
           '<input class="name-input rank-input" data-act="num" data-i="' + i + '" type="text" maxlength="3" ' +
             'placeholder="Rank (blank = auto)" inputmode="numeric" value="' + esc(ST.nums[i] || "") + '">' +
           '</div>'
+        : "") +
+      ((multi || top5)
+        ? '<input class="name-input cap-input" data-act="cap" data-i="' + i + '" type="text" maxlength="60" ' +
+          'placeholder="Caption (optional)" value="' + esc(ST.caps[i] || "") + '">'
         : "") +
     "</div>";
   }).join("");
@@ -620,6 +628,7 @@ async function addFiles(files) {
       });
       ST.photos.push({ path: e.path, file: e.file, dim: dim });
       ST.labels.push("");
+      ST.caps.push("");
       done++;
       showUprog("Uploading " + done + " / " + total + "...");
       renderPhotos();
@@ -688,6 +697,7 @@ async function recognizeLabels() {
 function removePhoto(i) {
   ST.photos.splice(i, 1);
   ST.labels.splice(i, 1);
+  ST.caps.splice(i, 1);
   // Removing a photo may change the auto default (e.g. the only non-square
   // photo is gone) — re-apply unless the user pinned a format by hand.
   if (!ST.ratioPinned) ST.ratio = defaultRatio();
@@ -703,7 +713,7 @@ function removePhoto(i) {
 function reorderPhoto(from, to) {
   if (from === to || from < 0 || to < 0 || from >= ST.photos.length || to >= ST.photos.length) return;
   const move = (arr) => { const it = arr.splice(from, 1)[0]; arr.splice(to, 0, it); };
-  move(ST.photos); move(ST.labels); move(ST.shots); move(ST.focuses);
+  move(ST.photos); move(ST.labels); move(ST.shots); move(ST.focuses); move(ST.caps);
   renderPhotos();
 }
 
@@ -855,6 +865,8 @@ function renderStep4() {
   const fm = $("#capFieldsMulti"); if (fm) fm.hidden = pipe !== "multi_suite";
   const fg = $("#capFieldsGrid"); if (fg) fg.hidden = pipe !== "four_grid";
   const flook = $("#capFieldsLook"); if (flook) flook.hidden = pipe !== "collage_palette";
+  // 2026-11-05：Color Palette 色板编辑器——进入 step4 时按当前照片刷新
+  if (pipe === "collage_palette") refreshPalettePanel(false);
   const fl = $("#capFieldsLine"); if (fl) fl.hidden = !(pipe === "card_pan" || pipe === "scroll_gallery");
   const ff = $("#capFieldsFast"); if (ff) ff.hidden = pipe !== "fast_cut";
   const fc2 = $("#capFieldsCin"); if (fc2) fc2.hidden = !cin;
@@ -954,6 +966,55 @@ async function fetchCaptionSuggest(force) {
     if (ids.sub && j.sub) _capPut(ids.sub, j.sub);
     updateFontPreview();
   } catch (e) { /* 建议失败静默：字段保留默认/占位，不阻塞渲染流程 */ }
+}
+
+/* ============================================================================
+   Color Palette Showcase · 色板编辑器（2026-11-05 用户③）
+   进入 step4 / 点「Detect colours again」时调 /api/palette-preview：
+   服务端用上传画像投票 + 预设组合匹配，返回 {name, colors:[{name,hex,rgb}]}。
+   客户可改每档颜色名 / 微调色值；渲染时随 palette_edit 提交，最终生效。 */
+async function refreshPalettePanel(force) {
+  if (!ST.template || ST.template.pipeline !== "collage_palette") return;
+  if (!ST.photos.length) { ST.paletteCols = null; renderSwatchRows(); return; }
+  const key = "pp|" + ST.photos.map((p) => p.path).join(",");
+  if (!force && key === (refreshPalettePanel._key || "")) return;
+  refreshPalettePanel._key = key;
+  try {
+    const j = await api("/api/palette-preview", {
+      project: ST.project && ST.project.id,
+      srcs: ST.photos.map((p) => p.path),
+    });
+    ST.paletteCols = (j.colors || []).map((c) => ({ name: c.name || "", hex: c.hex || "#CCCCCC" }));
+    const sub = $("#wlSub");
+    if (sub && !sub.value.trim() && j.name) sub.value = j.name;
+    renderSwatchRows();
+  } catch (e) { /* 预览失败静默：识别在渲染时仍会自动进行 */ }
+}
+
+function renderSwatchRows() {
+  const box = $("#wlSwatches");
+  if (!box) return;
+  box.innerHTML = "";
+  (ST.paletteCols || []).forEach((c) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;align-items:center";
+    const pick = document.createElement("input");
+    pick.type = "color";
+    pick.value = /^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#CCCCCC";
+    pick.style.cssText = "width:42px;height:34px;padding:2px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer";
+    pick.addEventListener("input", () => { c.hex = pick.value; });
+    const name = document.createElement("input");
+    name.type = "text";
+    name.maxLength = 30;
+    name.value = c.name || "";
+    name.placeholder = "Colour name";
+    name.className = "name-input";
+    name.style.cssText = "flex:1";
+    name.addEventListener("input", () => { c.name = name.value; });
+    row.appendChild(pick);
+    row.appendChild(name);
+    box.appendChild(row);
+  });
 }
 
 /* 字体样式实时预览：客户输入的文字 × 所选字体（白字、深底，
@@ -1168,6 +1229,7 @@ async function generate() {
         // Captions off → don't send design names either, so the recognized
         // content from step 2 (the per-photo nameplates) stays out of the video.
         labels: capOn() ? ST.labels.slice(0, srcs.length) : [],
+        captions: ST.caps.slice(0, srcs.length),
         shots: ST.shots.slice(0, srcs.length),
         focuses: ST.focuses.slice(0, srcs.length),
         ratio: ratioApi(ST.ratio),
@@ -1293,6 +1355,7 @@ async function generate() {
         srcs: srcs,
         skus: ST.skus.slice(0, srcs.length),
         nums: ST.nums.slice(0, srcs.length),
+        captions: ST.caps.slice(0, srcs.length),
         title_main: ($("#t5Title") && $("#t5Title").value.trim()) || "TOP 5",
         title_sub: ($("#t5Sub") ? $("#t5Sub").value.trim() : ""),
         ratio: ratioApi(ST.ratio),
@@ -1354,6 +1417,14 @@ async function generate() {
         // 2026-11-03：标题字体字号按模版设计（衬线正体+斜体），不用客户字体覆盖
       } else {
         body.show_text = false;
+      }
+      // 2026-11-05 用户③：客户编辑过的色板（名称/单色名/色块）随渲染提交
+      if (ST.paletteCols && ST.paletteCols.length) {
+        body.palette_edit = {
+          colors: ST.paletteCols.map((c) => ({ name: c.name || "", hex: c.hex || "" })),
+        };
+        const nm = ($("#wlSub") && $("#wlSub").value.trim()) || "";
+        if (nm) body.palette_edit.name = nm;
       }
       const vo = voPayload();
       if (vo) body.voiceover = vo;
@@ -1544,11 +1615,12 @@ function bind() {
   const capFieldsEl = $("#capFields");
   if (capFieldsEl) capFieldsEl.addEventListener("input", updateFontPreview);
   // 2026-11-04 · Color Palette 副标题：客户可改，也可一键按图重新识别
+  // 2026-11-05：改为刷新色板编辑器（预设组合匹配 + 每档色名/色值可改）
   const wlRe = $("#wlRedetect");
   if (wlRe) wlRe.addEventListener("click", async () => {
     const sub = $("#wlSub");
     if (sub) sub.value = "";
-    await fetchCaptionSuggest(true);
+    await refreshPalettePanel(true);
     const v = sub && sub.value.trim();
     show(v ? "Detected \u201C" + v + "\u201D from your photos \u2014 edit it if you like."
            : "Couldn't read a palette name \u2014 type your own in the Subtitle field.");
@@ -1599,6 +1671,7 @@ function bind() {
     if (el.dataset.act === "label") ST.labels[i] = el.value;
     else if (el.dataset.act === "sku") ST.skus[i] = el.value;
     else if (el.dataset.act === "num") ST.nums[i] = el.value;
+    else if (el.dataset.act === "cap") ST.caps[i] = el.value;
   });
 
   // Drag-to-reorder: grab any photo card (or its ⠿ handle) and drop it onto
