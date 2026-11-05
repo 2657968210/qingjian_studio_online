@@ -1287,17 +1287,17 @@ def _build_overlay(kicker, script, palette, W, H):
 def _build_collage(bgr_imgs, W, H, max_open=6):
     """开场拼贴：**按行自适应排版**（justified rows）。
 
-    规则（2026-11-05 用户需求①）：
-      · 每行内图片按**原始宽高比**等高排列——绝不拉伸、行内零裁切，
-        每张图 100% 完整展示；
+    规则（2026-11-05 用户需求①，含同日追加「四边靠边不留空白」）：
+      · 每行内图片按**原始宽高比**分配宽度、等高排列——绝不拉伸；
       · 行高 = W / 行内宽高比之和（行宽正好铺满 W）；把有序图片切分成
         连续若干行，枚举所有分行方案，选「整板高度最贴近 H、行高不过薄」
-        的方案 → 板高只比 H 略大/略小；
-      · 板高 > 1.25H 时整板等比缩到 1.25H 再居中竖裁（每图纵向损失有界
-        ≤20%，远好于旧版 masonry 上下被裁成窄条）；板高 < H 时模糊底补边；
+        的方案；
+      · **整板按 H 精确铺满**：行高整体乘 f = H / 总高后，行内用 _cover 填充
+        矩形（只裁不拉伸），所以画面四边全部靠边、没有模糊补边或空隙；
+        每个分区方案都枚举过，选出 |分区高 - H| 最小的 → 裁切量最小；
       · 同时展示的图最多 max_open=6 张（N>6 取前 6），其余照片仍会在
         单图满幅段全部展示；
-      · 不拉伸：所有 tile 均保持原始宽高比。
+      · 不拉伸：所有 tile 均保持原始宽高比（_cover 等比缩放后裁切）。
     返回 H 高的 RGB ndarray。
     """
     from itertools import combinations
@@ -1310,9 +1310,10 @@ def _build_collage(bgr_imgs, W, H, max_open=6):
         ih, iw = bgr_imgs[p].shape[:2]
         asp.append(max(0.25, iw / float(max(1, ih))))
 
-    # 枚举连续分行方案（n ≤ 6、行数 ≤ 4，组合数很小）
+    # 枚举连续分行方案（n ≤ 6、行数 ≤ 6，组合数很小）：行数放开到 n 是为了
+    # 让「整板高度」能更贴近 H，铺满时的裁切量更小。
     best = None
-    for R in range(1, min(4, n) + 1):
+    for R in range(1, min(6, n) + 1):
         for cut in combinations(range(1, n), R - 1):
             bounds = [0] + list(cut) + [n]
             rows = [list(range(bounds[i], bounds[i + 1])) for i in range(R)]
@@ -1326,41 +1327,29 @@ def _build_collage(bgr_imgs, W, H, max_open=6):
                 best = (score, rows, hs, T)
     _score, rows, hs, T = best
 
-    s = 1.0
-    if T > 1.25 * H:
-        s = 1.25 * H / T          # 整板略缩 → 竖裁有界（每图纵向损失 ≤20%）
-    row_h = [hr * s for hr in hs]
-    board_h = int(round(sum(row_h)))
+    # 2026-11-05 用户：拼图四边必须靠边、不留空白 → 整板按 H 精确铺满。
+    # f = H / T：行高整体缩放；行内按宽高比分配宽度。矩形可能略偏离原始比例，
+    # 但 _cover 只裁不拉伸——裁切量 = |T-H|/H，而行方案枚举已把该差值压到最小。
+    f = H / max(1.0, T)
+    row_h = [hr * f for hr in hs]
 
-    # 模糊底（均值色）——板矮时补边、板缩时补两侧
-    acc = np.zeros((96, 54, 3), np.float32)
-    for im in bgr_imgs.values():
-        acc += cv2.resize(im, (54, 96), interpolation=cv2.INTER_AREA).astype(np.float32)
-    acc /= max(1, len(bgr_imgs))
-    backdrop = cv2.resize(acc, (W, max(board_h, H)), interpolation=cv2.INTER_LANCZOS4)
-    backdrop = cv2.GaussianBlur(backdrop, (0, 0), 40)
-    board = Image.fromarray(backdrop.astype(np.uint8)).convert("RGB")
-
+    board = Image.new("RGB", (W, H), (0, 0, 0))
     y = 0
-    for row, hr in zip(rows, row_h):
-        row_w = sum(asp[i] * hr for i in row)
-        x = (W - int(round(row_w))) // 2
-        for i in row:
-            tw = int(round(asp[i] * hr))
-            tile = _cover(bgr_imgs[paths[i]], tw, int(round(hr)))
-            board.paste(Image.fromarray(tile), (max(0, x), y))
+    for ri, (row, hr) in enumerate(zip(rows, row_h)):
+        A = max(1e-6, sum(asp[i] for i in row))
+        th = (H - y) if ri == len(row_h) - 1 else int(round(hr))
+        x = 0
+        for k, i in enumerate(row):
+            if k == len(row) - 1:
+                tw = W - x                       # 吸收取整误差，右边缘无缝
+            else:
+                tw = max(1, min(int(round(W * asp[i] / A)), W - x))
+            if tw > 0 and th > 0:
+                tile = _cover(bgr_imgs[paths[i]], tw, th)
+                board.paste(Image.fromarray(tile), (x, y))
             x += tw
-        y += int(round(hr))
-
-    arr = np.asarray(board).astype(np.uint8)
-    if arr.shape[0] >= H:
-        top = (arr.shape[0] - H) // 2          # 居中竖裁（损失有界）
-        return arr[top:top + H]
-    canvas = cv2.GaussianBlur(cv2.resize(arr, (W, H), interpolation=cv2.INTER_AREA),
-                              (0, 0), 60)
-    y0 = (H - arr.shape[0]) // 2
-    canvas[y0:y0 + arr.shape[0], :] = arr
-    return canvas
+        y += th
+    return np.asarray(board).astype(np.uint8)
 
 
 # ---------------------------------------------------------------------------
