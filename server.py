@@ -1745,26 +1745,35 @@ class Handler(SimpleHTTPRequestHandler):
 
             if p == "/api/voiceover-test":
                 """口播自检（2026-11-05 内网无声排查用）：
-                返回 ark key 是否已配 + edge-tts 实际合成一次的结果与真实报错。
-                同事浏览器/脚本直接 POST 即可定位「无声」卡在哪一环。"""
+                返回 ark key 是否已配 + 两个 TTS 引擎各合成一次的真实结果：
+                edge_tts（需外网）/ sapi（Windows 离线兜底）。定位「无声」卡哪环。"""
                 res = {"storyboard_key_set":
                        bool((CONFIG.get("storyboard_api") or {}).get("api_key"))}
+                import asyncio as _aio
+                import tempfile as _tfd
+                from core import voiceover as _vot
+                _d = _tfd.mkdtemp(prefix="votest_")
+                # 引擎 1：edge-tts（微软在线）
                 try:
-                    import tempfile
-                    from core import voiceover as _vot
-                    _tmp = os.path.join(tempfile.gettempdir(),
-                                        "vo_test_%s.mp3" % uuid.uuid4().hex)
-                    _vot.tts_line("This is a voiceover test.", _tmp)
-                    _sz = os.path.getsize(_tmp) if os.path.isfile(_tmp) else 0
-                    res["tts"] = "ok" if _sz > 2000 else "no audio (%d bytes)" % _sz
-                    try:
-                        os.remove(_tmp)
-                    except OSError:
-                        pass
-                except BaseException as _vt_exc:
+                    _w = _aio.run(_vot._tts_async(
+                        "This is a voiceover test.",
+                        os.path.join(_d, "a.mp3"), _vot.DEFAULT_VOICE))
+                    res["edge_tts"] = "ok (%d words)" % len(_w)
+                except BaseException as _e1:
                     traceback.print_exc()
-                    res["tts"] = "error: %s: %s" % (type(_vt_exc).__name__,
-                                                    str(_vt_exc)[:300])
+                    res["edge_tts"] = "error: %s: %s" % (type(_e1).__name__,
+                                                         str(_e1)[:200])
+                # 引擎 2：Windows SAPI（离线兜底）
+                try:
+                    _vot._tts_sapi("This is a local test.",
+                                   os.path.join(_d, "b.wav"))
+                    res["sapi_tts"] = "ok"
+                except BaseException as _e2:
+                    traceback.print_exc()
+                    res["sapi_tts"] = "error: %s: %s" % (type(_e2).__name__,
+                                                         str(_e2)[:200])
+                res["tts"] = "ok" if ("ok" in str(res.get("edge_tts", ""))
+                                      or res.get("sapi_tts") == "ok") else "failed"
                 return self.send_json(res)
 
             if p == "/api/smart/assess":

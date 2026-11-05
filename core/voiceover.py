@@ -103,8 +103,65 @@ async def _tts_async(text, out_path, voice):
 
 
 def tts_line(text, out_audio, voice=DEFAULT_VOICE):
-    """合成一行口播 → 落盘 mp3，返回词级时间戳 [{text,start,end}]（秒）。"""
-    return asyncio.run(_tts_async(text, out_audio, voice))
+    """合成一行口播 → 落盘音频，返回词级时间戳 [{text,start,end}]（秒）。
+
+    2026-11-05 内网保障：edge-tts 失败（服务器无外网 / 微软服务不可达）→
+    自动改用 Windows SAPI 离线合成（System.Speech，无需任何外网）。
+    SAPI 无词级时间戳 → 返回 []，字幕由 build_cues 按词数比例兜底。
+    """
+    try:
+        return asyncio.run(_tts_async(text, out_audio, voice))
+    except BaseException as e:              # 红线：兜底捕获 BaseException
+        import traceback
+        traceback.print_exc()
+        print("[voiceover] edge-tts failed (%s: %s) -> SAPI offline fallback"
+              % (type(e).__name__, e), flush=True)
+        return _tts_sapi(text, out_audio)
+
+
+def _tts_sapi(text, out_path):
+    """Windows SAPI 离线 TTS（口播本地兜底，2026-11-05）。
+
+    经 PowerShell System.Speech 合成 wav；优先选英文声（Zira/David/en-US），
+    找不到就用系统默认。成功返回 []（无词级时间戳），失败抛 RuntimeError。
+    """
+    import tempfile
+    d = tempfile.mkdtemp(prefix="votts_")
+    txt = os.path.join(d, "t.txt")
+    wav = os.path.join(d, "t.wav")
+    with open(txt, "w", encoding="utf-8") as f:
+        f.write(text)
+    ps = (
+        "$ErrorActionPreference='Stop';"
+        "Add-Type -AssemblyName System.Speech;"
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+        "try { $v = $s.GetInstalledVoices() | Where-Object "
+        "{ $_.VoiceInfo.Culture.Name -like 'en*' -or "
+        "$_.VoiceInfo.Name -like '*Zira*' -or $_.VoiceInfo.Name -like '*David*' }"
+        " | Select-Object -First 1; if ($v) { $s.SelectVoice($v.VoiceInfo.Name) } "
+        "} catch {};"
+        "$s.Rate = 0; $s.Volume = 100;"
+        "$t = [IO.File]::ReadAllText('%s', [Text.Encoding]::UTF8);"
+        "$s.SetOutputToWaveFile('%s');"
+        "$s.Speak($t);"
+        "$s.Dispose()"
+    ) % (txt.replace("\\", "/"), wav.replace("\\", "/"))
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           capture_output=True, timeout=300)
+        ok = (r.returncode == 0 and os.path.isfile(wav)
+              and os.path.getsize(wav) > 2000)
+        if not ok:
+            raise RuntimeError("SAPI rc=%s %s" % (
+                r.returncode,
+                (r.stderr or b"")[-300:].decode("utf-8", "replace")))
+        os.replace(wav, out_path)
+        return []
+    finally:
+        try:
+            os.remove(txt)
+        except OSError:
+            pass
 
 
 def fit_tempo(audio_dur, window_dur):
