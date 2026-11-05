@@ -1779,6 +1779,14 @@ async function saveSetup() {
 async function boot() {
   bind();
   goStep(1);
+  // 2026-11-05：URL 带 ?setup=1 时显示设置入口（内网同事填 Ark Key 用），
+  // 前台客户正常访问不带参数 → 入口保持隐藏。
+  try {
+    if (new URLSearchParams(location.search).get("setup") === "1") {
+      const b = $("#btnSetup");
+      if (b) { b.hidden = false; b.style.display = ""; }
+    }
+  } catch (e) {}
   try { await openSession(); } catch (e) { toast("Could not start a session: " + e.message, 6000); return; }
   renderPhotos();
   updateGenBtn();
