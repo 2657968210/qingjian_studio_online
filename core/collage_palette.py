@@ -1348,16 +1348,16 @@ def _build_overlay(kicker, script, palette, W, H):
 # 拼贴板（2026-11-05 用户定稿：左右两列分割，四边靠边不留空白）
 # ---------------------------------------------------------------------------
 def _build_collage(bgr_imgs, W, H, max_open=6):
-    """开场拼贴：**左右两列等宽（各 50%）**。
+    """开场拼贴：**左右两列等宽（各 50%）+ 垂直错落（错综排布）**。
 
-    用户 2026-11-05：明确要两列等宽、规整的 50/50 布局（不歪不偏、
-    不做花哨的非对称浮动）。
-      · 两列宽度固定各占 W/2，画面四边靠边、无缝、全出血；
-      · 图片按上传顺序先左列后右列；枚举左列张数 k（1..n-1）选**裁切总量
-        最小**的分布（左 2 右 3 / 左 3 右 2 / 左右各 2 …均可能），保证
-        每列 tile 不过薄、大小接近；
-      · 列内 tile 高度按原始宽高比分配，整列高度精确 = H；矩形用 _cover
-        填充（**只裁不拉伸**），画面恰好铺满 W×H，四边全部靠边、无补边空隙。
+    用户 2026-11-05：列宽保持干净等宽 50/50；但列内多张图的**横向分界
+    线不要左右对齐成网格**，要错落（masonry 感）。
+      · 两列宽度固定各占 W/2，四边靠边、无缝、全出血；
+      · 图片按上传顺序先左列后右列；枚举左列张数 k（1..n-1）选
+        **裁切最小、且左右张数差尽量大**的分布（更易错落）；
+      · 列内 tile 高度按原始宽高比分配、整列精确 = H（只裁不拉伸）；
+      · **右列施加交错抖动**：奇偶 tile 高度按 1.15 / 0.85 交替增减，
+        使右列分界线与左列错开，呈现错综排布，而非左右对齐的网格。
     返回 H 高的 RGB ndarray。
     """
     paths = list(bgr_imgs.keys())[:max_open]
@@ -1371,19 +1371,19 @@ def _build_collage(bgr_imgs, W, H, max_open=6):
         ih, iw = bgr_imgs[p].shape[:2]
         inv.append(1.0 / max(0.25, iw / float(max(1, ih))))
 
-    # 两列固定等宽（各 W/2）；只枚举左列张数 k，打分选裁切最小分布
+    # 两列固定等宽（各 W/2）；枚举左列张数 k：小裁切优先，张数差次级（更易错落）
     HcW = W / 2.0                           # 单列宽（两列相等）
     best = None
     for k in range(1, n):
         sL, sR = sum(inv[:k]), sum(inv[k:])
-        # 两列宽均为 HcW：自然总高 vs H 的偏差 = 裁切来源
         fL, fR = H / max(1.0, HcW * sL), H / max(1.0, HcW * sR)
         thin = 0.0
         for j in range(k):
             thin += max(0.0, 0.16 * H - H * inv[j] / sL)
         for j in range(k, n):
             thin += max(0.0, 0.16 * H - H * inv[j] / sR)
-        score = abs(1.0 - fL) * k + abs(1.0 - fR) * (n - k) + 2.0 * thin / H
+        score = (abs(1.0 - fL) * k + abs(1.0 - fR) * (n - k)
+                 + 2.0 * thin / H + 0.04 * abs((n - k) - k))
         if best is None or score < best[0]:
             best = (score, k)
     _score, k = best
@@ -1395,10 +1395,15 @@ def _build_collage(bgr_imgs, W, H, max_open=6):
     for ci, (cw, idxs) in enumerate(
             ((cwL, range(0, k)), (cwR, range(k, n)))):
         y = 0
-        ssum = sum(inv[i] for i in idxs)
+        m = len(idxs)
+        raw = [inv[i] for i in idxs]
+        if ci == 1:                          # 右列交错抖动 → 左右分界线错落
+            raw = [r * (1.15 if j % 2 == 0 else 0.85)
+                   for j, r in enumerate(raw)]
+        ssum = sum(raw)
         for j, i in enumerate(idxs):
             tw = (W - x) if ci == 1 else cw         # 吸收取整误差，右边缘无缝
-            th = (H - y) if j == len(idxs) - 1 else int(round(H * inv[i] / ssum))
+            th = (H - y) if j == m - 1 else max(1, int(round(H * raw[j] / ssum)))
             if tw > 0 and th > 0:
                 tile = _cover(bgr_imgs[paths[i]], tw, th)
                 board.paste(Image.fromarray(tile), (x, y))
