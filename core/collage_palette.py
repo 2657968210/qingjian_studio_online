@@ -1008,6 +1008,63 @@ def palette_colors_of(palette):
     return out
 
 
+_TEXT_SEP_RE = re.compile(r"\s*(?:&|/|\+|,|、|·|—|\band\b)\s*", re.I)
+
+
+def _match_color_token(tok):
+    """单个词 → (色名, RGB)。整词匹配（\\b 边界），防 "thousand" 撞 "sand"。"""
+    t = tok.strip().lower()
+    if not t or len(t) > 30:
+        return None
+    anchors = {n: c for n, c in _PRESET_ANCHORS.items()}
+    names = {n.lower(): (n, c) for n, c in anchors.items()}
+    for rgb, n in _PALETTE_NAMES:
+        names.setdefault(n.lower(), (n, rgb))
+    if t in names:                                   # 整名精确
+        return names[t]
+    best = None                                      # 整词包含（双向）
+    for nl, (n, c) in names.items():
+        if re.search(r"\b%s\b" % re.escape(nl), t) or \
+                re.search(r"\b%s\b" % re.escape(t), nl):
+            if best is None or len(nl) < len(best[0]):
+                best = (nl, n, c)
+    return (best[1], best[2]) if best else None
+
+
+def palette_from_text(text):
+    """Subtitle 文本 → 色板（2026-11-05 用户：Subtitle 内容驱动色块）。
+
+    支持 "Navy Blue & Gold"、"Blush Pink / Cream" 等写法：
+      · 先按分隔符拆词，逐词整词匹配色名库（预设锚色 + 色库）；
+      · 认不出的词忽略；至少认出 1 个颜色才采用（不强行套用）；
+      · 命中色不足 4 档时用 complete_palette 在基色间插值补齐（同色系）。
+    返回 {"name": 原文, "colors": [{name,rgb,hex},…]} 或 None。
+    """
+    s = str(text or "").strip()
+    if not s or len(s) > 80:
+        return None
+    toks = [t for t in _TEXT_SEP_RE.split(s) if t.strip()]
+    out, seen = [], set()
+    for tok in toks:
+        m = _match_color_token(tok)
+        if not m:
+            continue
+        name, rgb = m
+        if name.lower() in seen:
+            continue
+        rgb = tuple(int(round(v)) for v in rgb)
+        if any(sum((a - b) ** 2 for a, b in zip(rgb, o["rgb"])) < 1600
+               for o in out):               # 近重复色（距离<40）不重复入板
+            continue
+        seen.add(name.lower())
+        out.append({"name": name, "rgb": list(rgb),
+                    "hex": "#%02X%02X%02X" % rgb})
+    if not out:
+        return None
+    return {"name": s, "colors": complete_palette(out)}
+
+
+
 def complete_palette(colors, n=N_SWATCH):
     """把色板补齐到 n 档（用户 2026-11-05：保留 4 档色块，但必须是搭配的颜色）。
 
@@ -1063,11 +1120,17 @@ def complete_palette(colors, n=N_SWATCH):
         ladder.append(base[-1])
         named[base[-1]] = pairs[-1][1]
     res = []
+    used = set()
     for c in ladder[:n]:
         item = named.get(c)
         if item is None:
-            item = {"name": _nearest_color_name(c), "rgb": list(c),
+            nm = _nearest_color_name(c)
+            dark = _lum(c) < 128.0
+            while nm in used:               # 与已有档同名 → Soft/Deep 前缀区分
+                nm = ("Deep %s" if dark else "Soft %s") % nm
+            item = {"name": nm, "rgb": list(c),
                     "hex": "#%02X%02X%02X" % c}
+        used.add(item["name"])
         res.append(dict(item))
     return res
 
@@ -1282,73 +1345,67 @@ def _build_overlay(kicker, script, palette, W, H):
 
 
 # ---------------------------------------------------------------------------
-# 拼贴板（2026-11-05 用户①定稿：按行自适应排版，少裁切）
+# 拼贴板（2026-11-05 用户定稿：左右两列分割，四边靠边不留空白）
 # ---------------------------------------------------------------------------
 def _build_collage(bgr_imgs, W, H, max_open=6):
-    """开场拼贴：**按行自适应排版**（justified rows）。
+    """开场拼贴：**左右两列**自适应布局。
 
-    规则（2026-11-05 用户需求①，含同日追加「四边靠边不留空白」）：
-      · 每行内图片按**原始宽高比**分配宽度、等高排列——绝不拉伸；
-      · 行高 = W / 行内宽高比之和（行宽正好铺满 W）；把有序图片切分成
-        连续若干行，枚举所有分行方案，选「整板高度最贴近 H、行高不过薄」
-        的方案；
-      · **整板按 H 精确铺满**：行高整体乘 f = H / 总高后，行内用 _cover 填充
-        矩形（只裁不拉伸），所以画面四边全部靠边、没有模糊补边或空隙；
-        每个分区方案都枚举过，选出 |分区高 - H| 最小的 → 裁切量最小；
-      · 同时展示的图最多 max_open=6 张（N>6 取前 6），其余照片仍会在
-        单图满幅段全部展示；
-      · 不拉伸：所有 tile 均保持原始宽高比（_cover 等比缩放后裁切）。
+    规则（2026-11-05 用户）：
+      · 图片按上传顺序先左列后右列（左 2 右 3 / 左 3 右 2 / 左右各 2 …均可能，
+        由枚举打分决定）；同时展示最多 max_open=6 张（N>6 取前 6），
+        其余照片在单图满幅段全部展示；
+      · 枚举「左列张数 k × 左列宽占比 w」，打分选**裁切总量最小、两列缩放
+        系数接近、tile 不过薄**的组合——保证每张图大小差异不大；
+      · 列内 tile 高度按原始宽高比分配，整列高度精确 = H；矩形用 _cover
+        填充（**只裁不拉伸**），画面恰好铺满 W×H，四边全部靠边、无补边空隙。
     返回 H 高的 RGB ndarray。
     """
-    from itertools import combinations
     paths = list(bgr_imgs.keys())[:max_open]
     n = len(paths)
     if n == 0:
         return np.full((H, W, 3), (255, 255, 255), np.uint8)
-    asp = []
+    if n == 1:
+        return _cover(bgr_imgs[paths[0]], W, H)
+    inv = []                                # 1/宽高比：单位宽度所需高度
     for p in paths:
         ih, iw = bgr_imgs[p].shape[:2]
-        asp.append(max(0.25, iw / float(max(1, ih))))
+        inv.append(1.0 / max(0.25, iw / float(max(1, ih))))
 
-    # 枚举连续分行方案（n ≤ 6、行数 ≤ 6，组合数很小）：行数放开到 n 是为了
-    # 让「整板高度」能更贴近 H，铺满时的裁切量更小。
+    # 枚举 k（左列张数）× w（左列宽占比）：裁切量由列自然高 vs H 的偏差决定
     best = None
-    for R in range(1, min(6, n) + 1):
-        for cut in combinations(range(1, n), R - 1):
-            bounds = [0] + list(cut) + [n]
-            rows = [list(range(bounds[i], bounds[i + 1])) for i in range(R)]
-            A = [sum(asp[i] for i in row) for row in rows]
-            hs = [W / max(0.25, a) for a in A]
-            T = sum(hs)
-            # 行高过薄（<16%H）或过厚（>70%H）都扣分：避免出现窄条观感
-            pen = sum(max(0.0, 0.16 * H - hr) + max(0.0, hr - 0.70 * H) for hr in hs)
-            score = abs(T - H) + 2.0 * pen
+    for k in range(1, n):
+        sL, sR = sum(inv[:k]), sum(inv[k:])
+        for wi in range(37):
+            w = 0.32 + wi * (0.36 / 36)     # 左列宽占比 0.32 ~ 0.68
+            HcL = W * w * sL                # 左列自然总高（宽度 W*w 时）
+            HcR = W * (1.0 - w) * sR
+            fL, fR = H / max(1.0, HcL), H / max(1.0, HcR)   # 缩放系数=裁切来源
+            thin = 0.0
+            for j in range(k):
+                thin += max(0.0, 0.16 * H - H * inv[j] / sL)
+            for j in range(k, n):
+                thin += max(0.0, 0.16 * H - H * inv[j] / sR)
+            score = (abs(1.0 - fL) * k + abs(1.0 - fR) * (n - k)
+                     + 1.5 * abs(fL - fR) + 2.0 * thin / H)
             if best is None or score < best[0]:
-                best = (score, rows, hs, T)
-    _score, rows, hs, T = best
+                best = (score, k, w)
+    _score, k, w = best
 
-    # 2026-11-05 用户：拼图四边必须靠边、不留空白 → 整板按 H 精确铺满。
-    # f = H / T：行高整体缩放；行内按宽高比分配宽度。矩形可能略偏离原始比例，
-    # 但 _cover 只裁不拉伸——裁切量 = |T-H|/H，而行方案枚举已把该差值压到最小。
-    f = H / max(1.0, T)
-    row_h = [hr * f for hr in hs]
-
+    cwL = int(round(W * w))
     board = Image.new("RGB", (W, H), (0, 0, 0))
-    y = 0
-    for ri, (row, hr) in enumerate(zip(rows, row_h)):
-        A = max(1e-6, sum(asp[i] for i in row))
-        th = (H - y) if ri == len(row_h) - 1 else int(round(hr))
-        x = 0
-        for k, i in enumerate(row):
-            if k == len(row) - 1:
-                tw = W - x                       # 吸收取整误差，右边缘无缝
-            else:
-                tw = max(1, min(int(round(W * asp[i] / A)), W - x))
+    x = 0
+    for ci, (cw, idxs) in enumerate(
+            ((cwL, range(0, k)), (W - cwL, range(k, n)))):
+        y = 0
+        ssum = sum(inv[i] for i in idxs)
+        for j, i in enumerate(idxs):
+            tw = (W - x) if ci == 1 else cw         # 吸收取整误差，右边缘无缝
+            th = (H - y) if j == len(idxs) - 1 else int(round(H * inv[i] / ssum))
             if tw > 0 and th > 0:
                 tile = _cover(bgr_imgs[paths[i]], tw, th)
                 board.paste(Image.fromarray(tile), (x, y))
-            x += tw
-        y += th
+            y += th
+        x += cw
     return np.asarray(board).astype(np.uint8)
 
 
@@ -1417,7 +1474,13 @@ def render_collage_palette(images, out_path, ratio="9x16", fps=30,
         # 色块用识别实际色，不因预设强加不存在的第三色）。
         preset_hit = match_preset(palette)
         ai_hint = None
-        if preset_hit:
+        # 2026-11-05 用户：Subtitle 直接写了配色（如 "Navy Blue & Gold"）→
+        # 色块按文字匹配，优先级高于图像识别/预设（手动编辑 palette_edit 仍最高）。
+        text_hit = palette_from_text(subtitle)
+        if text_hit:
+            preset_hit = (text_hit["name"],
+                          [(c["name"], tuple(c["rgb"])) for c in text_hit["colors"]])
+        elif preset_hit:
             palette_name = preset_hit[0]
         else:
             # 无预设命中 → 用识别色自动组名（如 Ivory & Burgundy）；

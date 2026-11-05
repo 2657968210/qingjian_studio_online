@@ -1625,6 +1625,31 @@ function bind() {
     show(v ? "Detected \u201C" + v + "\u201D from your photos \u2014 edit it if you like."
            : "Couldn't read a palette name \u2014 type your own in the Subtitle field.");
   });
+  // 2026-11-05 · Subtitle 文字驱动色块：输入如 "Navy Blue & Gold" →
+  // 防抖后调 /api/palette-preview（subtitle 参数）刷新下方色块（仍可手改）
+  const wlSubEl = $("#wlSub");
+  if (wlSubEl) {
+    let _wlSubT = null;
+    wlSubEl.addEventListener("input", () => {
+      clearTimeout(_wlSubT);
+      _wlSubT = setTimeout(async () => {
+        if (!ST.photos.length) return;
+        try {
+          const j = await api("/api/palette-preview", {
+            project: ST.project && ST.project.id,
+            srcs: ST.photos.map((p) => p.path),
+            subtitle: wlSubEl.value.trim(),
+          });
+          if (j && j.source === "text" && (j.colors || []).length) {
+            ST.paletteCols = j.colors.map((c) => ({
+              name: c.name || "", hex: c.hex || "#CCCCCC",
+            }));
+            renderSwatchRows();
+          }
+        } catch (e) { /* 文字匹配失败静默：仍走图像识别 */ }
+      }, 600);
+    });
+  }
   const voOn = $("#voOn");
   if (voOn) {
     voOn.addEventListener("change", renderStep4);

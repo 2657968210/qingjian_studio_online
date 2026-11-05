@@ -383,6 +383,29 @@ CTA_INVITES = {
 }
 
 
+def fallback_three_act(labels, selling, cta):
+    """LLM 起稿失败时的模板兜底（2026-11-05 内网无 ark key 也能出口播）。
+
+    背景：内网服务器没配火山 Key（storyboard_api.api_key 为空）→
+    draft_three_act 必失败 → 口播整段被跳过、成片无声。兜底句不假设产品
+    题材（遵守视觉提示词的同一红线），只复用用户填写的款名 / 卖点 / CTA
+    意向；句子短，fit_tempo 会自动对齐窗口语速。
+    """
+    names = [str(l or "").strip() for l in (labels or []) if str(l or "").strip()]
+    first = names[0] if names else "our latest pieces"
+    mid = str(selling or "").strip() or (
+        "Every detail is finished by hand, from the first sketch "
+        "to the final touch.")
+    cta_map = {
+        "view": "Browse the full collection to find your favourite.",
+        "inquire": "Send us a message anytime, we are happy to help.",
+        "samples": "Order a sample set and feel the quality for yourself.",
+    }
+    return ["Here is a closer look at %s, made to be remembered." % first,
+            mid,
+            cta_map.get(cta, cta_map["view"])]
+
+
 def beats_for_timeline(opener, seg, secs, n):
     """按 0-3 / 3-10 / 10-15 规范生成三段，起点钉在最近的分镜切换处。
 
@@ -549,7 +572,9 @@ def voiceover_on_rendered(video_in, out_path, srcs, opener, seg, secs, labels,
     build_contact_sheet(srcs, sheet)
     lines = draft_three_act(cfg, srcs, beats, spans, labels, selling, cta, sheet)
     if not lines:
-        raise RuntimeError("three-act narration draft failed")
+        # 2026-11-05：LLM 起稿失败（无 ark key / 不可达）→ 模板兜底，
+        # 只要有 edge-tts 出网能力就照样出口播，不再整段放弃。
+        lines = fallback_three_act(labels, selling, cta)
     starts = [b[1] for b in beats]
     return apply_voiceover(video_in, lines, starts, out_path,
                            bgm=fallback_bgm, duck=duck, voice=voice,

@@ -1743,6 +1743,30 @@ class Handler(SimpleHTTPRequestHandler):
                 save_project(proj)
                 return self.send_json({"entry": entry, "project": proj})
 
+            if p == "/api/voiceover-test":
+                """口播自检（2026-11-05 内网无声排查用）：
+                返回 ark key 是否已配 + edge-tts 实际合成一次的结果与真实报错。
+                同事浏览器/脚本直接 POST 即可定位「无声」卡在哪一环。"""
+                res = {"storyboard_key_set":
+                       bool((CONFIG.get("storyboard_api") or {}).get("api_key"))}
+                try:
+                    import tempfile
+                    from core import voiceover as _vot
+                    _tmp = os.path.join(tempfile.gettempdir(),
+                                        "vo_test_%s.mp3" % uuid.uuid4().hex)
+                    _vot.tts_line("This is a voiceover test.", _tmp)
+                    _sz = os.path.getsize(_tmp) if os.path.isfile(_tmp) else 0
+                    res["tts"] = "ok" if _sz > 2000 else "no audio (%d bytes)" % _sz
+                    try:
+                        os.remove(_tmp)
+                    except OSError:
+                        pass
+                except BaseException as _vt_exc:
+                    traceback.print_exc()
+                    res["tts"] = "error: %s: %s" % (type(_vt_exc).__name__,
+                                                    str(_vt_exc)[:300])
+                return self.send_json(res)
+
             if p == "/api/smart/assess":
                 g = self._ai_gate("vision")
                 if g:
@@ -2905,6 +2929,14 @@ class Handler(SimpleHTTPRequestHandler):
                 if not _psrcs:
                     return self.send_json({"error": "no photos"}, 400)
                 from core import collage_palette as cpl
+                # 2026-11-05 用户：Subtitle 直接写了配色名（如 "Navy Blue & Gold"）
+                # → 色块按文字匹配，优先于图像识别（返回 source="text"）。
+                _ptxt = cpl.palette_from_text(body.get("subtitle") or "")
+                if _ptxt:
+                    return self.send_json({"name": _ptxt["name"],
+                                           "preset": None, "family": None,
+                                           "source": "text",
+                                           "colors": _ptxt["colors"]})
                 _pfam = None
                 try:
                     _ppid = body.get("project")
