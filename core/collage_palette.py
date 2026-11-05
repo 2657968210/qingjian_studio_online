@@ -1348,14 +1348,14 @@ def _build_overlay(kicker, script, palette, W, H):
 # 拼贴板（2026-11-05 用户定稿：左右两列分割，四边靠边不留空白）
 # ---------------------------------------------------------------------------
 def _build_collage(bgr_imgs, W, H, max_open=6):
-    """开场拼贴：**左右两列**自适应布局。
+    """开场拼贴：**左右两列等宽（各 50%）**。
 
-    规则（2026-11-05 用户）：
-      · 图片按上传顺序先左列后右列（左 2 右 3 / 左 3 右 2 / 左右各 2 …均可能，
-        由枚举打分决定）；同时展示最多 max_open=6 张（N>6 取前 6），
-        其余照片在单图满幅段全部展示；
-      · 枚举「左列张数 k × 左列宽占比 w」，打分选**裁切总量最小、两列缩放
-        系数接近、tile 不过薄**的组合——保证每张图大小差异不大；
+    用户 2026-11-05：明确要两列等宽、规整的 50/50 布局（不歪不偏、
+    不做花哨的非对称浮动）。
+      · 两列宽度固定各占 W/2，画面四边靠边、无缝、全出血；
+      · 图片按上传顺序先左列后右列；枚举左列张数 k（1..n-1）选**裁切总量
+        最小**的分布（左 2 右 3 / 左 3 右 2 / 左右各 2 …均可能），保证
+        每列 tile 不过薄、大小接近；
       · 列内 tile 高度按原始宽高比分配，整列高度精确 = H；矩形用 _cover
         填充（**只裁不拉伸**），画面恰好铺满 W×H，四边全部靠边、无补边空隙。
     返回 H 高的 RGB ndarray。
@@ -1371,31 +1371,29 @@ def _build_collage(bgr_imgs, W, H, max_open=6):
         ih, iw = bgr_imgs[p].shape[:2]
         inv.append(1.0 / max(0.25, iw / float(max(1, ih))))
 
-    # 枚举 k（左列张数）× w（左列宽占比）：裁切量由列自然高 vs H 的偏差决定
+    # 两列固定等宽（各 W/2）；只枚举左列张数 k，打分选裁切最小分布
+    HcW = W / 2.0                           # 单列宽（两列相等）
     best = None
     for k in range(1, n):
         sL, sR = sum(inv[:k]), sum(inv[k:])
-        for wi in range(37):
-            w = 0.32 + wi * (0.36 / 36)     # 左列宽占比 0.32 ~ 0.68
-            HcL = W * w * sL                # 左列自然总高（宽度 W*w 时）
-            HcR = W * (1.0 - w) * sR
-            fL, fR = H / max(1.0, HcL), H / max(1.0, HcR)   # 缩放系数=裁切来源
-            thin = 0.0
-            for j in range(k):
-                thin += max(0.0, 0.16 * H - H * inv[j] / sL)
-            for j in range(k, n):
-                thin += max(0.0, 0.16 * H - H * inv[j] / sR)
-            score = (abs(1.0 - fL) * k + abs(1.0 - fR) * (n - k)
-                     + 1.5 * abs(fL - fR) + 2.0 * thin / H)
-            if best is None or score < best[0]:
-                best = (score, k, w)
-    _score, k, w = best
+        # 两列宽均为 HcW：自然总高 vs H 的偏差 = 裁切来源
+        fL, fR = H / max(1.0, HcW * sL), H / max(1.0, HcW * sR)
+        thin = 0.0
+        for j in range(k):
+            thin += max(0.0, 0.16 * H - H * inv[j] / sL)
+        for j in range(k, n):
+            thin += max(0.0, 0.16 * H - H * inv[j] / sR)
+        score = abs(1.0 - fL) * k + abs(1.0 - fR) * (n - k) + 2.0 * thin / H
+        if best is None or score < best[0]:
+            best = (score, k)
+    _score, k = best
 
-    cwL = int(round(W * w))
+    cwL = int(round(W / 2))                 # 左列宽（整数，吸收取整误差）
+    cwR = W - cwL                           # 右列宽（补满 W，无缝）
     board = Image.new("RGB", (W, H), (0, 0, 0))
     x = 0
     for ci, (cw, idxs) in enumerate(
-            ((cwL, range(0, k)), (W - cwL, range(k, n)))):
+            ((cwL, range(0, k)), (cwR, range(k, n)))):
         y = 0
         ssum = sum(inv[i] for i in idxs)
         for j, i in enumerate(idxs):
