@@ -26,6 +26,7 @@ apply_caption 全程烧在画面**中上方 + 加大字号**——只给没有�
 失败语义：网络/合成异常直接抛错——调用方（job）应 catch 后仍交付无口播成片。
 """
 import os
+import sys
 import re
 import json
 import math
@@ -80,9 +81,17 @@ def _run(cmd):
 
 # ---------------------------------------------------------------- TTS
 async def _tts_async(text, out_path, voice):
-    """edge-tts 7.x：必须显式 boundary="WordBoundary" 才有词级 offset/duration。"""
+    """edge-tts 7.x：必须显式 boundary="WordBoundary" 才有词级 offset/duration。
+
+    2026-11-06 内网加固：旧版 edge-tts(<7.0) 不认识 boundary 参数（TypeError），
+    降级为无 boundary 调用——音频照样合成，只是没词级时间戳（build_cues 按词数
+    比例兜底），保证内网老环境也能出声。
+    """
     import edge_tts
-    comm = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+    try:
+        comm = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+    except TypeError:
+        comm = edge_tts.Communicate(text, voice)
     words, audio = [], b""
     async for chunk in comm.stream():
         if chunk["type"] == "audio":
@@ -125,6 +134,10 @@ def _tts_sapi(text, out_path):
     经 PowerShell System.Speech 合成 wav；优先选英文声（Zira/David/en-US），
     找不到就用系统默认。成功返回 []（无词级时间戳），失败抛 RuntimeError。
     """
+    if sys.platform != "win32":
+        # 2026-11-06：SAPI 是 Windows 专用兜底；非 Windows 直接抛清晰错误，
+        # 不再留下难排查的 FileNotFoundError: 'powershell'
+        raise RuntimeError("SAPI TTS is Windows-only (host=%s)" % sys.platform)
     import tempfile
     d = tempfile.mkdtemp(prefix="votts_")
     txt = os.path.join(d, "t.txt")
