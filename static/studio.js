@@ -1434,6 +1434,7 @@ async function generate() {
       setRender(2, "Applying the camera work of \u201C" + esc(t.name) + "\u201D…");
       ({ job } = await api("/api/cameramove/render", body));
     }
+    const voReq = !!voPayload();   // 2026-11-06: voiceover requested? (surface failures)
     const res = await pollJob(job, (j) => setRender(j.progress || 5, j.msg || "Creating…"));
     const secs = res.secs || 0;
     const name = "invitation-promo-" + fmt1(secs) + "s.mp4";
@@ -1445,6 +1446,7 @@ async function generate() {
     $("#resultMeta").textContent = fmt1(secs) + " seconds \u00B7 " + ST.ratio + " \u00B7 " + t.name +
       (res.captions ? " \u00B7 Captions" : "") +
       (res.voiceover ? " \u00B7 Voiceover" : "") +
+    (voReq && !res.voiceover ? " \u00B7 Voiceover unavailable" + (res.voiceover_error ? " (" + res.voiceover_error + ")" : "") : "") +
       (res.branding ? " \u00B7 Logo (branding)" : "");
     $("#renderBox").hidden = true;
     $("#s4Title").textContent = "Your video is ready";

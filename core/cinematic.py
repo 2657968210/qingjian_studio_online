@@ -29,7 +29,7 @@ import cv2
 from core import card_pan as cp
 from core.fastcut import _build_text_overlay, DEFAULT_TEXT as CAPTION_DEFAULT
 
-MIN_PHOTOS, MAX_PHOTOS = 6, 12
+MIN_PHOTOS, MAX_PHOTOS = 6, 99
 PAN_AMP = 0.045          # 平移幅度（占画幅比例，单程）
 PAN_SCALE = 1.14         # 放大留边，保证平移不露黑边
 ROT_DEG = [14, 12, 15, 13, 11]   # 旋转角度（顺时针，度）

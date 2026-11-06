@@ -66,8 +66,8 @@ def render_decor_show(images, out_path, ratio="9x16", fps=30, progress=None,
     paths = [p for p in (images or []) if p and os.path.isfile(p)]
     if len(paths) < 3:
         raise ValueError("Decor Showcase needs at least 3 photos")
-    if len(paths) > 12:
-        paths = paths[:12]
+    if len(paths) > 99:
+        paths = paths[:99]
 
     OW, OH = cp.ratio_size(ratio)
     vw, vh = int(OW), int(OH)

@@ -3004,7 +3004,7 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 3:
                     return self.send_json(
-                        {"error": "This template needs 3 to 12 photos — upload at least 3 stationery photos first"}, 400)
+                        {"error": "This template needs at least 3 photos — upload at least 3 stationery photos first"}, 400)
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))
                 fps = int(body.get("fps") or 30)
@@ -3324,9 +3324,9 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 3:
                     return self.send_json(
-                        {"error": "This template needs 3 to 12 photos — upload at least 3 photos first"}, 400)
-                if len(srcs) > 12:
-                    srcs = srcs[:12]
+                        {"error": "This template needs at least 3 photos — upload at least 3 photos first"}, 400)
+                if len(srcs) > 99:
+                    srcs = srcs[:99]
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))
                 fps = int(body.get("fps") or 30)
@@ -3505,9 +3505,9 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 2:
                     return self.send_json(
-                        {"error": "This template needs 2 to 8 photos — upload at least 2 photos first"}, 400)
-                if len(srcs) > 8:
-                    srcs = srcs[:8]
+                        {"error": "This template needs at least 2 photos — upload at least 2 photos first"}, 400)
+                if len(srcs) > 99:
+                    srcs = srcs[:99]
                 title1 = (body.get("title1") or "").strip() or "Our Wedding Invitations"
                 title2 = (body.get("title2") or "").strip() or "NEW COLLECTION"
                 footer = (body.get("footer") or "").strip()
@@ -3740,10 +3740,9 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 6:
                     return self.send_json(
-                        {"error": "This template needs 6 to 12 photos — upload at least 6 photos first"}, 400)
-                if len(srcs) > 12:
-                    return self.send_json(
-                        {"error": "This template takes up to 12 photos — please remove a few and try again"}, 400)
+                        {"error": "This template needs at least 6 photos — upload at least 6 photos first"}, 400)
+                if len(srcs) > 99:
+                    srcs = srcs[:99]
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))
                 fps = int(body.get("fps") or 30)
@@ -3818,6 +3817,9 @@ class Handler(SimpleHTTPRequestHandler):
                             traceback.print_exc()
                     # 口播后处理（step4 Add AI Voiceover 可选）：三段式配音+字幕，
                     # 烧中下（sub_pos="lower"），不与 44% 屏高的持久字幕叠。失败不影响交付。
+                    # 2026-11-06：silent 时 fallback_bgm 必须为 None —— 此前把
+                    # 打节拍用的模版曲传给了口播混音，「无音乐」选择被悄悄撤销。
+                    _vo_bgm = None if _silent else _bf
                     _vo = body.get("voiceover") or {}
                     vo_meta = None
                     vo_error = None
@@ -3835,7 +3837,7 @@ class Handler(SimpleHTTPRequestHandler):
                                 out, _vo_out, srcs, 0.0, secs, secs, [],
                                 str(_vo.get("selling") or "").strip(),
                                 str(_vo.get("cta") or "view").strip(),
-                                _cfg, progress=_vprog, fallback_bgm=_bf,
+                                _cfg, progress=_vprog, fallback_bgm=_vo_bgm,
                                 beats=_volib.three_act_beats(secs),
                                 sub_pos="lower")
                             if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
