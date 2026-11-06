@@ -83,6 +83,9 @@ function isDecorTpl() {
 function isCollageTpl() {
   return !!(ST.template && ST.template.pipeline === "collage_palette");
 }
+function isBwRevealTpl() {
+  return !!(ST.template && ST.template.pipeline === "bw_reveal");
+}
 
 /* ---------------- tiny helpers ---------------- */
 
@@ -503,6 +506,7 @@ function updateGenBtn() {
   const car = isCarouselTpl();
   const decor = isDecorTpl();
   const collage = isCollageTpl();
+  const bw = isBwRevealTpl();
   const n = ST.photos.length;
   // Per-template minimums must match the server endpoints:
   //   multi-suite (Collection)  → 2  (server.py /api/multi-suite: len(srcs) < 2)
@@ -514,7 +518,8 @@ function updateGenBtn() {
   //   carousel (New Collection)  → 2  (server.py /api/carousel: len(srcs) < 2)
   //   decor-show (Decor)         → 3  (server.py /api/decor-show: len(srcs) < 3)
   //   collage-palette (Wedding Look) → 3  (server.py /api/collage-palette: len(srcs) < 3)
-  const min = multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 5 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : 1;
+  //   bw_reveal (B&W->Color Reveal) → 2  (server.py /api/bw-reveal: len(srcs) < 2, cap 12)
+  const min = multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 5 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : bw ? 2 : 1;
   const recog = recogPending();
   $("#btnToStep3").disabled = n === 0 || ST.busy || n < min || recog;
   let eta = "";
@@ -530,6 +535,8 @@ function updateGenBtn() {
     if (top5 && n < 3) eta += " \u00B7 add at least 3 photos to continue";
     if (car && n < 2) eta += " \u00B7 add one more photo to continue";
     if (collage && n < 3) eta += " \u00B7 add at least 3 photos to continue";
+    if (bw && n < 2) eta += " \u00B7 add at least 2 photos to continue";
+    if (bw && n >= 12) eta += " \u00B7 maximum reached";
     if (recog) eta += " \u00B7 recognizing design names\u2026";
     if ((multi || four) && n >= 8) eta += " \u00B7 maximum reached";
     if (cin && n >= 12) eta += " \u00B7 maximum reached";
@@ -842,10 +849,12 @@ function renderStep4() {
   const pipe = t ? t.pipeline : "";
   const cin = pipe === "cinematic_cut";
   const three = pipe === "three_screen";
+  const bw = pipe === "bw_reveal";
   // Cinematic Cut: length scales with photo count (4.8 + 0.56×N s) — show it live.
   // Three-Screen: opener 8 beats + per-photo 3 beats (last 4) at 0.5923s/beat.
   const secs = cin ? Math.round((4.8 + 0.56 * n) * 10) / 10
                    : three ? Math.round((3 * n + 9) * 0.5923 * 10) / 10
+                   : bw ? Math.round(Math.min(12.37, 2 * n * 0.55) * 10) / 10
                    : ((t && t.target_secs) || 15);
   const info = $("#voTplInfo");
   if (info) {
@@ -867,7 +876,7 @@ function renderStep4() {
   // 2026-11-03：有原生文字设计的模版（含文字在 step2 的 TOP5/Carousel），
   // 字体字号按模版设计 → 隐藏客户字体选择与预览；无文字模版才可选字体。
   const NATIVE_FONT_TPL = ["multi_suite", "four_grid", "collage_palette",
-                           "fast_cut", "cinematic_cut", "top5", "carousel"];
+                           "fast_cut", "cinematic_cut", "top5", "carousel", "bw_reveal"];
   const nativeFont = NATIVE_FONT_TPL.indexOf(pipe) >= 0;
   // 2026-11-03：Captions 默认开启**只针对有原生文字设计的模版**；无文字模版
   // （card_pan/scroll_gallery/three_screen/decor_show）默认关。仅在该模版首次
@@ -890,6 +899,7 @@ function renderStep4() {
   const ff = $("#capFieldsFast"); if (ff) ff.hidden = pipe !== "fast_cut";
   const fc2 = $("#capFieldsCin"); if (fc2) fc2.hidden = !cin;
   const ft = $("#capFieldsThree"); if (ft) ft.hidden = !three;
+  const fb = $("#capFieldsBw"); if (fb) fb.hidden = pipe !== "bw_reveal";
   // top5/carousel 的文字（标题/名次/SKU）在 step2 每图下编辑，step4 没有
   // 对应输入框 → 开关打开也不显示空的 capFields。
   const cf = $("#capFields");
@@ -937,6 +947,7 @@ const CAP_DEFAULTS = {
   three_screen:    { line: "Your three-screen story" },
   decor_show:      { line: "Timeless details, beautifully made" },
   collage_palette: { title: "Weddings 2027" },
+  bw_reveal:       { line: "details ...incoming" },
 };
 /* 每个模版的文案输入框 id（与 index.html capFields* 一一对应） */
 const CAP_INPUTS = {
@@ -949,6 +960,7 @@ const CAP_INPUTS = {
   cinematic_cut:   { line: "cinText" },
   three_screen:    { line: "tsText" },
   decor_show:      { line: "decorCap" },
+  bw_reveal:       { line: "bwText" },
 };
 function _capPut(id, val) {
   const el = $("#" + id);
@@ -1442,6 +1454,24 @@ async function generate() {
       setRender(2, "Building your wedding look collage in " + ST.ratio + "…");
       applyBgm(body);
       ({ job } = await api("/api/collage-palette", body));
+    } else if (t.pipeline === "bw_reveal") {
+      // B&W → Color Reveal: 2-12 photos -> each opens B&W then reveals in colour
+      // with a continuous camera move; optional opening title (Add Captions toggle).
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_text = true;
+        body.text = (($("#bwText") && $("#bwText").value.trim()) || "");
+      } else {
+        body.show_text = false;
+      }
+      setRender(2, "Building your B&W → Color reveal in " + ST.ratio + "…");
+      applyBgm(body);   // server keeps its fixed card-point BGM (bw_reveal_bgm.mp3)
+      ({ job } = await api("/api/bw-reveal", body));
     } else {
       const body = { project: ST.project.id, ratio: ST.ratio, moves: t.seq || [] };
       if (srcs.length >= 2) body.sources = srcs;

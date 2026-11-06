@@ -154,6 +154,20 @@
       "moves": [
         { "id": "summary", "label": "1–8 photos" }
       ]
+    },
+    {
+      "id": "bw_reveal",
+      "name": "B&W → Color Reveal",
+      "category": "wedding",
+      "pipeline": "bw_reveal",
+      "cover": "/static/templates/tpl_bwreveal.mp4",
+      "poster": "/static/templates/tpl_bwreveal.jpg",
+      "target_secs": "scales with photo count (2-12)",
+      "recommended_ratio": "9:16",
+      "desc": "Each photo opens in black & white, then reveals in full colour with a continuous camera move. Add an optional opening title.",
+      "moves": [
+        { "id": "summary", "label": "2-12 photos" }
+      ]
     }
   ]
 }

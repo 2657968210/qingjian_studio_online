@@ -3394,6 +3394,77 @@ class Handler(SimpleHTTPRequestHandler):
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
+            if p == "/api/bw-reveal":
+                """黑白->彩色 切换揭示模版（B&W->Color Reveal）—— N(2~12) 张请柬/纸品图 ->
+                每张先以黑白呈现、再同图彩色揭示；黑白镜与彩色镜是同一段连续运镜的前半/后半程
+                （phase 0->0.5 / 0.5->1.0，切换发生在运镜滑行途中、不回位、不重置）；
+                开头 1 秒斜体衬线「开场标题」可编辑、可关。
+                BGM 固定用做好那版视频的原曲卡点曲（bgm/bw_reveal_bgm.mp3，单次播放随片长截断、
+                不循环、不卡顿）；客户可改文字、选择是否加文字、图片 ≤12 张。
+                入参(JSON)：srcs 图片路径(2~12) / project / ratio / fps /
+                text 开场标题(可选，空则回退默认句) / show_text 是否加标题(bool, 默认 True) /
+                silent(默认 False) / branding(可选)
+                返回：异步 job，result 含 {video, file, secs, images, ratio}"""
+                body = self.read_body_json()
+                branding = body.get("branding") or None
+                pid = body.get("project")
+                srcs = [s for s in (body.get("srcs") or []) if s]
+                srcs = [s for s in srcs if os.path.isfile(s)]
+                if len(srcs) < 2:
+                    return self.send_json(
+                        {"error": "This template needs at least 2 photos — upload at least 2 photos first"}, 400)
+                if len(srcs) > 12:
+                    srcs = srcs[:12]
+                from core.card_pan import norm_ratio as _norm_ratio
+                ratio = _norm_ratio(body.get("ratio"))
+                fps = int(body.get("fps") or 30)
+                text = body.get("text") or ""
+                use_text = body.get("show_text", True)
+                if isinstance(use_text, str):
+                    use_text = use_text.lower() in ("1", "true", "yes", "on")
+                jid = new_job("bw_reveal")
+
+                def work():
+                    from core import bw_reveal as bw
+                    out_dir = os.path.join(project_path(pid) if pid else DATA, "bwreveal")
+                    os.makedirs(out_dir, exist_ok=True)
+                    stamp = time.strftime("%m%d%H%M%S") + uuid.uuid4().hex[:3]
+                    out = os.path.join(out_dir, "bw_%s_%s.mp4" % (ratio, stamp))
+
+                    def prog(done, total_, msg=""):
+                        job_progress(jid, int(done), int(total_ or 100), msg)
+
+                    res = bw.render_bw_reveal(srcs, out, ratio=ratio, fps=fps,
+                                              text=text, use_text=use_text, progress=prog)
+                    secs = res["secs"]
+                    # BGM：固定用原曲卡点曲（做好那版视频用的），单次播放随片长截断、不循环、不卡顿
+                    if not body.get("silent"):
+                        try:
+                            _bf = _bgm_pick(body, "bw_reveal_bgm.mp3")
+                            if os.path.isfile(_bf):
+                                _mix = out + ".mix.mp4"
+                                job_progress(jid, 92, 100, "Adding music")
+                                compose.mix_bgm(out, _bf, _mix, gain_db=-4.0,
+                                                fade_in=1.0, fade_out=2.2)
+                                if os.path.isfile(_mix) and os.path.getsize(_mix) > 1024:
+                                    os.replace(_mix, out)
+                        except BaseException:
+                            traceback.print_exc()
+                    base = os.path.basename(out)
+                    if pid:
+                        p2 = load_project(pid)
+                        p2.setdefault("bwreveal", []).append(
+                            {"file": out, "name": "B&W Reveal %ss" % secs,
+                             "kind": "bwreveal", "dur": secs})
+                        save_project(p2)
+                        video = "/media/%s/bwreveal/%s" % (pid, base)
+                    else:
+                        video = "/media/bwreveal/%s" % base
+                    return {"video": video, "file": out, "secs": secs,
+                            "images": res["images"], "ratio": res.get("ratio")}
+                run_job(jid, work, branding=branding)
+                return self.send_json({"job": jid})
+
             if p == "/api/top5":
                 """TOP 5 倒数榜模版（TOP 5 Countdown）—— N 张产品图 -> 标题页 + 每图运镜段
                 + 左下酒红编号块 + 右侧款式 SKU。图片数 3-8 张（可调）；每图 sku + num 可填
