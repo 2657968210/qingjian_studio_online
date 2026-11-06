@@ -485,6 +485,13 @@ function syncT5Title() {
   el.dataset.auto = "1";
 }
 
+/* 2026-11-06 user: Collection Showcase / Top Picks Countdown 的「下一步」按钮
+   必须等自动识别设计名返回后才可点击 —— ST._recogPend 有值说明识别请求在飞。 */
+function recogPending() {
+  if (!isMultiTpl() && !isTop5Tpl()) return false;
+  return Object.keys(ST._recogPend || {}).length > 0;
+}
+
 function updateGenBtn() {
   const multi = isMultiTpl();
   const scroll = isScrollTpl();
@@ -508,7 +515,8 @@ function updateGenBtn() {
   //   decor-show (Decor)         → 3  (server.py /api/decor-show: len(srcs) < 3)
   //   collage-palette (Wedding Look) → 3  (server.py /api/collage-palette: len(srcs) < 3)
   const min = multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 5 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : 1;
-  $("#btnToStep3").disabled = n === 0 || ST.busy || n < min;
+  const recog = recogPending();
+  $("#btnToStep3").disabled = n === 0 || ST.busy || n < min || recog;
   let eta = "";
   if (n) {
     eta = n + (n > 1 ? " photos" : " photo") +
@@ -522,6 +530,7 @@ function updateGenBtn() {
     if (top5 && n < 3) eta += " \u00B7 add at least 3 photos to continue";
     if (car && n < 2) eta += " \u00B7 add one more photo to continue";
     if (collage && n < 3) eta += " \u00B7 add at least 3 photos to continue";
+    if (recog) eta += " \u00B7 recognizing design names\u2026";
     if ((multi || four) && n >= 8) eta += " \u00B7 maximum reached";
     if (cin && n >= 12) eta += " \u00B7 maximum reached";
     // Fast Cut: every photo plays three times at one beat (0.592s) each —
@@ -672,6 +681,7 @@ async function recognizeLabels() {
   //  as "the feature isn't live" — user feedback 2026-10-15)
   need.forEach((x) => { ST._recogPend[x.path] = true; });
   renderPhotos();
+  updateGenBtn();          // 识别中 → 禁用「下一步」
   try {
     const { job } = await api("/api/recognize-labels", { srcs: need.map((x) => x.path) });
     const res = await pollJob(job, () => {});
@@ -695,6 +705,7 @@ async function recognizeLabels() {
   } finally {
     need.forEach((x) => { delete ST._recogPend[x.path]; });
     renderPhotos();
+    updateGenBtn();        // 识别结束（成功或失败）→ 恢复按钮
   }
 }
 
@@ -770,6 +781,10 @@ function ratioApi(id) {
 /* step 2 → step 3 */
 function gotoStep3() {
   if (!ST.photos.length) { toast("Add a photo first."); return; }
+  if (recogPending()) {
+    toast("Recognizing design names \u2014 the next step unlocks in a few seconds.");
+    return;
+  }
   // Re-apply the auto default unless the user pinned a format by hand
   // (photo set may have changed since the last visit, e.g. all-square → 1:1).
   if (!ST.ratioPinned || !RATIOS.some((x) => x.id === ST.ratio)) {
