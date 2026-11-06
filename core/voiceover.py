@@ -256,7 +256,9 @@ def build_cues(lines, starts, words_by_line, tempos, video_dur):
                 cnt = len(c.split())
                 j = min(n - 1, idx + cnt - 1)
                 s = max(prev_end + 0.03, st + words[idx]["start"] / tempo - 0.05)
-                e = min(limit, max(s + 0.30, st + words[j]["end"] / tempo + 0.12))
+                s = min(s, limit - 0.05)            # 不越入下一句窗口
+                e = min(limit, max(s + 0.25, st + words[j]["end"] / tempo + 0.12))
+                e = max(e, s + 0.15)                # 杜绝 s>e 反转（句子超窗时的兜底）
                 cues.append((c, s, e))
                 prev_end = e
                 idx = min(n, idx + cnt)
@@ -645,6 +647,23 @@ def voiceover_on_rendered(video_in, out_path, srcs, opener, seg, secs, labels,
         # 2026-11-05：LLM 起稿失败（无 ark key / 不可达）→ 模板兜底，
         # 只要有 edge-tts 出网能力就照样出口播，不再整段放弃。
         lines = fallback_three_act(labels, selling, cta)
+    # 2026-11-06 修复：按各段窗口词预算裁剪，保证每句口播能塞进时间窗。
+    # 根因：模型常超出预算，超窗音频即使 atempo 1.12 也放不下 → 跨句重叠，
+    # 听感像「重复音」、字幕错乱（build_cues 兜底）。裁到预算内后语速自然落窗。
+    windows = [max(0.5, b[2] - b[1]) for b in beats]
+    budgets = [max(3, int(round(w * 2.5))) for w in windows]
+    trimmed = []
+    for i, line in enumerate(lines):
+        line = (line or "").strip()
+        if not line:
+            trimmed.append(line)
+            continue
+        ws = line.split()
+        b = budgets[i] if i < len(budgets) else 12
+        if len(ws) > b:
+            line = " ".join(ws[:b]).rstrip(",;: ")
+        trimmed.append(line)
+    lines = trimmed
     starts = [b[1] for b in beats]
     return apply_voiceover(video_in, lines, starts, out_path,
                            bgm=fallback_bgm, duck=duck, voice=voice,

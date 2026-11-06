@@ -201,7 +201,7 @@ FAMILIES = ("h", "v", "diag", "push", "pull")
 
 
 def make_move(family, canvas, vw, vh, direction=1, zoom=None, strength=1.0,
-              diag_cross=False):
+              diag_cross=False, anchor=None):
     """构造 cam_fn(t) —— 平移行程自动按画布余量收敛，绝不顶到边界卡住。
 
     diag_cross=True 时对角平移改为「反 Y」轨迹：
@@ -209,8 +209,13 @@ def make_move(family, canvas, vw, vh, direction=1, zoom=None, strength=1.0,
       direction<0  → 右下→左上 (BR→TL)
     默认 diag_cross=False 维持旧口径（direction>0=左上→右下，direction<0=右下→左上），
     Decor Showcase 不受影响。
+    anchor : (ax, ay) 画布像素坐标的焦点（仅 push/pull 用）。默认画面中心；
+      传入细节热区可让推近镜头对准卡片重点细节（Product Spotlight 用）。
     """
-    ax, ay = canvas.w * 0.5, canvas.h * 0.5
+    if anchor is not None:
+        ax, ay = float(anchor[0]), float(anchor[1])
+    else:
+        ax, ay = canvas.w * 0.5, canvas.h * 0.5
 
     if family in ("h", "v", "diag"):
         z = zoom or {"h": 1.12, "v": 1.18, "diag": 1.12}[family]
@@ -247,6 +252,10 @@ def make_move(family, canvas, vw, vh, direction=1, zoom=None, strength=1.0,
         z0 = zoom or 1.06
         z1 = z0 + 0.16 * strength
         par = 160.0
+        maxz = max(z0, z1)
+        # 焦点夹到安全区：推近到细节时不露画布黑边
+        ax = min(max(ax, vw / (2.0 * maxz)), canvas.w - vw / (2.0 * maxz))
+        ay = min(max(ay, vh / (2.0 * maxz)), canvas.h - vh / (2.0 * maxz))
 
         def fn(t):
             e = _ramp(t)
@@ -258,6 +267,9 @@ def make_move(family, canvas, vw, vh, direction=1, zoom=None, strength=1.0,
     z1 = zoom or 1.06
     z0 = z1 + 0.15 * strength
     par = 160.0
+    maxz = max(z0, z1)
+    ax = min(max(ax, vw / (2.0 * maxz)), canvas.w - vw / (2.0 * maxz))
+    ay = min(max(ay, vh / (2.0 * maxz)), canvas.h - vh / (2.0 * maxz))
 
     def fn(t):
         e = _ramp(t)
