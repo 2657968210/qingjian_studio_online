@@ -2706,7 +2706,7 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 6:
                     return self.send_json(
-                        {"error": "This template needs 6 to 8 photos — upload at least 6 invitation photos first"}, 400)
+                        {"error": "This template needs at least 6 photos — upload at least 6 invitation photos first"}, 400)
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))
                 fps = int(body.get("fps") or 30)
@@ -3161,9 +3161,9 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 5:
                     return self.send_json(
-                        {"error": "This template needs 5 to 12 photos — upload at least 5 photos first"}, 400)
-                if len(srcs) > 12:
-                    srcs = srcs[:12]
+                        {"error": "This template needs at least 5 photos — upload at least 5 photos first"}, 400)
+                if len(srcs) > 99:
+                    srcs = srcs[:99]
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))
                 fps = int(body.get("fps") or 30)
@@ -3406,9 +3406,9 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 3:
                     return self.send_json(
-                        {"error": "This template needs 3 to 8 photos — upload at least 3 photos first"}, 400)
-                if len(srcs) > 8:
-                    srcs = srcs[:8]
+                        {"error": "This template needs at least 3 photos — upload at least 3 photos first"}, 400)
+                if len(srcs) > 99:
+                    srcs = srcs[:99]
                 skus = body.get("skus") or []
                 nums = body.get("nums") or []
                 captions = body.get("captions") or []
@@ -3618,10 +3618,9 @@ class Handler(SimpleHTTPRequestHandler):
                 srcs = [s for s in srcs if os.path.isfile(s)]
                 if len(srcs) < 5:
                     return self.send_json(
-                        {"error": "This template needs 5 to 12 photos — upload at least 5 photos first"}, 400)
-                if len(srcs) > 12:
-                    return self.send_json(
-                        {"error": "This template takes up to 12 photos — please remove a few and try again"}, 400)
+                        {"error": "This template needs at least 5 photos — upload at least 5 photos first"}, 400)
+                if len(srcs) > 99:
+                    srcs = srcs[:99]
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))
                 fps = int(body.get("fps") or 30)

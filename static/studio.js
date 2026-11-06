@@ -383,17 +383,17 @@ async function gotoStep2() {
           : isMulti
           ? "Add 2\u20138 photos, one per design. Name each design under its photo."
           : isScroll
-          ? "Add 6\u20138 photos of your stationery. They scroll in two columns for a clean, text-free showcase."
+          ? "Add 6 or more photos of your stationery. They scroll in two columns for a clean, text-free showcase."
           : isFour
           ? "Add 4\u20138 photos of your stationery. The first four open as a grid, then each piece is shown one by one."
           : isFast
-          ? "Add 5\u201312 photos. Each plays in quick, beat-synced cuts."
+          ? "Add 5 or more photos. Each plays in quick, beat-synced cuts."
           : isCin
           ? "Add 6\u201312 photos. The film-style cut rotates and pans across your designs on the beat."
         : isThree
-        ? "Add 5\u201312 photos. An opening reveals three panels, then each photo is shown in turn."
+        ? "Add 5 or more photos. An opening reveals three panels, then each photo is shown in turn."
         : isTop5
-          ? "Add 3\u20138 photos. A countdown opens with a title, then each photo is ranked with its name and product code."
+          ? "Add 3 or more photos. A countdown opens with a title, then each photo is ranked with its name and product code."
           : isCar
           ? "Add 2\u20138 photos, one per design. Each slides to the centre while the rest wait at the edges."
           : isCol
@@ -517,11 +517,8 @@ function updateGenBtn() {
     if (top5 && n < 3) eta += " \u00B7 add at least 3 photos to continue";
     if (car && n < 2) eta += " \u00B7 add one more photo to continue";
     if (collage && n < 3) eta += " \u00B7 add at least 3 photos to continue";
-    if ((multi || scroll || four) && n >= 8) eta += " \u00B7 maximum reached";
-    if (fastcut && n >= 12) eta += " \u00B7 maximum reached";
+    if ((multi || four) && n >= 8) eta += " \u00B7 maximum reached";
     if (cin && n >= 12) eta += " \u00B7 maximum reached";
-    if (three && n >= 12) eta += " \u00B7 maximum reached";
-    if (top5 && n >= 8) eta += " \u00B7 maximum reached";
     // Fast Cut: every photo plays three times at one beat (0.592s) each —
     // show the auto-growing duration right here so the count/length link is clear.
     if (fastcut) eta += " \u00B7 about " + fmt1(n * 3 * 0.592) + " seconds";
@@ -606,8 +603,10 @@ async function uploadOne(file) {
 async function addFiles(files) {
   const list = Array.from(files || []).filter((f) => /^image\//.test(f.type));
   if (!list.length) { toast("Please choose JPG or PNG images."); return; }
-  const cap = (isFastCutTpl() || isThreeScreenTpl()) ? 12
-    : (isMultiTpl() || isScrollTpl() || isFourGridTpl() || isTop5Tpl()) ? 8 : 99;
+  // 99 = effectively unlimited (matches card_pan / carousel / decor / collage).
+  // Wedding Color Inspiration / Beat-Synced / Three-Panel / Top Picks now take
+  // any number of photos (user: no upper limit). Collection & Grid keep the 8 cap.
+  const cap = (isMultiTpl() || isFourGridTpl()) ? 8 : 99;
   ST.busy = true;
   updateGenBtn();
   let accepted = ST.photos.length, skipped = 0, done = 0;

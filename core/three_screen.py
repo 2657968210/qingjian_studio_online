@@ -323,8 +323,8 @@ def render_three_screen(images, out_path, ratio="9x16", fps=30, progress=None,
     paths = [p for p in (images or []) if p and os.path.isfile(p)]
     if len(paths) < 5:
         raise ValueError("Three-Screen Story needs at least 5 photos")
-    if len(paths) > 12:
-        paths = paths[:12]
+    if len(paths) > 99:
+        paths = paths[:99]
 
     OW, OH = cp.ratio_size(ratio)
     W, H = int(OW), int(OH)

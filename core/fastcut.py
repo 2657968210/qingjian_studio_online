@@ -59,7 +59,7 @@ ANCHOR_CENTER = 0.50
 TEXT_W_RATIO = 0.62     # 字幕字宽上限（占屏宽）
 TEXT_CY = 0.44          # 字幕垂直中心（占屏高）
 DEFAULT_TEXT = "the details, the day"
-MIN_PHOTOS, MAX_PHOTOS = 3, 12
+MIN_PHOTOS, MAX_PHOTOS = 3, 99
 
 CRF = 17
 PRESET = "slow"

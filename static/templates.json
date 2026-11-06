@@ -6,21 +6,7 @@
     { "id": "trends", "name": "Trends" }
   ],
   "styles": [],
-  "templates": [
-    {
-      "id": "auto_moves",
-      "name": "Product Spotlight",
-      "category": "product",
-      "pipeline": "card_pan",
-      "cover": "/static/templates/tpl_card_pan.mp4",
-      "target_secs": 15,
-      "recommended_ratio": "9:16",
-      "desc": "Highlight one invitation design with gentle motion and detail close-ups.",
-      "moves": [
-        { "id": "summary", "label": "1–8 photos" }
-      ]
-    },
-    {
+  "templates": [    {
       "id": "four_grid",
       "name": "Grid Showcase",
       "category": "wedding",
@@ -98,7 +84,7 @@
       "recommended_ratio": "9:16",
       "desc": "Pair your stationery with wedding scenes to share a coordinated look.",
       "moves": [
-        { "id": "summary", "label": "6-8 photos" }
+        { "id": "summary", "label": "6+ photos" }
       ]
     },
     {
@@ -112,7 +98,7 @@
       "recommended_ratio": "9:16",
       "desc": "Showcase your designs with quick cuts timed to the music.",
       "moves": [
-        { "id": "summary", "label": "5-12 photos" }
+        { "id": "summary", "label": "5+ photos" }
       ]
     },
     {
@@ -140,7 +126,7 @@
       "recommended_ratio": "9:16",
       "desc": "Open with a three-panel layout, then showcase each photo in turn.",
       "moves": [
-        { "id": "summary", "label": "5-12 photos" }
+        { "id": "summary", "label": "5+ photos" }
       ]
     },
     {
@@ -153,7 +139,20 @@
       "recommended_ratio": "9:16",
       "desc": "Count down your favorite designs with names and product codes.",
       "moves": [
-        { "id": "summary", "label": "3-8 photos" }
+        { "id": "summary", "label": "3+ photos" }
+      ]
+    },
+    {
+      "id": "auto_moves",
+      "name": "Product Spotlight",
+      "category": "product",
+      "pipeline": "card_pan",
+      "cover": "/static/templates/tpl_card_pan.mp4",
+      "target_secs": 15,
+      "recommended_ratio": "9:16",
+      "desc": "Highlight one invitation design with gentle motion and detail close-ups.",
+      "moves": [
+        { "id": "summary", "label": "1–8 photos" }
       ]
     }
   ]
