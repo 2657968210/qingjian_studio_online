@@ -3412,8 +3412,8 @@ class Handler(SimpleHTTPRequestHandler):
                 skus = body.get("skus") or []
                 nums = body.get("nums") or []
                 captions = body.get("captions") or []
-                # 开场标题页文字（第一幕）可填：main 默认 TOP 5，sub 留空不画
-                title_main = (body.get("title_main") or "").strip() or "TOP 5"
+                # 开场标题页文字（第一幕）可填：main 默认按张数（6张=TOP 6），sub 留空不画
+                title_main = (body.get("title_main") or "").strip() or ("TOP %d" % len(srcs))
                 title_sub = (body.get("title_sub") or "").strip() or None
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))

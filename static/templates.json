@@ -137,7 +137,7 @@
       "cover": "/static/templates/tpl_top5.mp4",
       "target_secs": "scales with photo count (3-8)",
       "recommended_ratio": "9:16",
-      "desc": "Count down your favorite designs with names and product codes.",
+      "desc": "Count down your favorite designs with their names.",
       "moves": [
         { "id": "summary", "label": "3+ photos" }
       ]

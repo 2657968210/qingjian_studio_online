@@ -21,7 +21,7 @@ const ST = {
   labels: [],        // Collection Showcase: design name per photo (optional)
   shots: [],         // Collection Showcase: per-photo camera plan ("detail" | "full" | "rotate" | "")
   focuses: [],       // Collection Showcase: per-photo detail focus bbox [x0,y0,x1,y1] or null
-  skus: [],          // TOP 5 Countdown: style SKU per photo (optional, drawn beside the rank number)
+  skus: [],          // TOP 5 Countdown: text drawn beside the rank number (now the auto-recognized design name)
   nums: [],          // TOP 5 Countdown: rank number per photo (optional, blank = auto countdown n..01)
   caps: [],          // Collection Showcase & TOP 5 Countdown: per-photo free caption (optional)
   paletteCols: null, // Color Palette Showcase: editable swatches [{name, hex}] from /api/palette-preview
@@ -64,7 +64,7 @@ function isThreeScreenTpl() {
   return !!(ST.template && ST.template.pipeline === "three_screen");
 }
 
-/* The TOP 5 Countdown template: 3-8 product photos, maroon rank number + style SKU. */
+/* The TOP 5 Countdown template: N product photos, maroon rank number + auto-recognized design name. */
 function isTop5Tpl() {
   return !!(ST.template && ST.template.pipeline === "top5");
 }
@@ -393,7 +393,7 @@ async function gotoStep2() {
         : isThree
         ? "Add 5 or more photos. An opening reveals three panels, then each photo is shown in turn."
         : isTop5
-          ? "Add 3 or more photos. A countdown opens with a title, then each photo is ranked with its name and product code."
+          ? "Add 3 or more photos. A countdown opens with a title, then each photo is ranked with its name."
           : isCar
           ? "Add 2\u20138 photos, one per design. Each slides to the centre while the rest wait at the edges."
           : isCol
@@ -434,13 +434,6 @@ function renderPhotos() {
   ST.caps.length = ST.photos.length;
   const n = ST.photos.length;
   $("#photos").innerHTML = ST.photos.map((p, i) => {
-    const shotSel = multi
-      ? '<div class="shot-sel" title="Camera plan for this photo">' +
-        SHOTS.map((s) =>
-          '<button type="button" class="shot-opt' + (ST.shots[i] === s.v ? " on" : "") +
-          '" data-act="shot" data-i="' + i + '" data-shot="' + s.v + '">' + s.t + "</button>"
-        ).join("") + "</div>"
-      : "";
     return '<div class="photo" data-i="' + i + '" draggable="true">' +
       '<div class="thumb"><img data-act="preview" data-i="' + i + '" title="Click to preview" src="' + photoUrl(p.path) + '" alt="" loading="lazy">' +
         '<span class="ord">' + (i + 1) + "</span>" +
@@ -451,24 +444,18 @@ function renderPhotos() {
           '<button class="ic" data-act="move-right" data-i="' + i + '" title="Move right" aria-label="Move right"' + (i === n - 1 ? " disabled" : "") + '>&#8594;</button>' +
         "</div>" +
       "</div>" +
-      (multi
+      // 2026-11-06 user: Collection Showcase keeps only the auto-recognized design
+      // name (Detail/Full/Rotate + per-photo Caption inputs removed — the camera
+      // plan and captions now run fully automatic). TOP 5 Countdown uses the same
+      // auto-recognized name in place of the Style SKU / Rank / Caption inputs.
+      (multi || top5
         ? '<input class="name-input" data-act="label" data-i="' + i + '" type="text" maxlength="40" ' +
-          'placeholder="' + (ST._recogPend[p.path] ? "Recognizing design name\u2026" : "Design name (optional)") + '" value="' + esc(ST.labels[i] || "") + '">' +
-          shotSel
-        : top5
-        ? '<div class="top5-fields">' +
-          '<input class="name-input" data-act="sku" data-i="' + i + '" type="text" maxlength="40" ' +
-            'placeholder="Style SKU (e.g. WSNT003)" value="' + esc(ST.skus[i] || "") + '">' +
-          '<input class="name-input rank-input" data-act="num" data-i="' + i + '" type="text" maxlength="3" ' +
-            'placeholder="Rank (blank = auto)" inputmode="numeric" value="' + esc(ST.nums[i] || "") + '">' +
-          '</div>'
-        : "") +
-      ((multi || top5)
-        ? '<input class="name-input cap-input" data-act="cap" data-i="' + i + '" type="text" maxlength="60" ' +
-          'placeholder="Caption (optional)" value="' + esc(ST.caps[i] || "") + '">'
+          'placeholder="' + (ST._recogPend[p.path] ? "Recognizing design name\u2026"
+            : (multi ? "Design name (optional)" : "Design name (auto)")) + '" value="' + esc(ST.labels[i] || "") + '">'
         : "") +
     "</div>";
   }).join("");
+  syncT5Title();
   renderAside();
   updateGenBtn();
 }
@@ -478,6 +465,24 @@ function setShot(i, v) {
   // click the active one again → clear back to "auto" (let the template decide)
   ST.shots[i] = (ST.shots[i] === v) ? "" : v;
   renderPhotos();
+}
+
+/* Opening title auto-numbering (2026-11-06 user): the TOP N headline follows the
+   photo count (6 photos → "TOP 6") until the customer types their own wording. */
+function syncT5Title() {
+  const el = $("#t5Title");
+  if (!el) return;
+  if (!el._manHook) {
+    el._manHook = true;
+    el.addEventListener("input", () => { el.dataset.auto = "0"; });
+  }
+  const n = ST.photos.length;
+  if (!n) return;
+  if (el.dataset.auto === "0") return;                    // customer typed custom text
+  if (el.value.trim() && !/^TOP\s*\d+$/i.test(el.value.trim())) { el.dataset.auto = "0"; return; }
+  const want = "TOP " + n;
+  if (el.value !== want) el.value = want;
+  el.dataset.auto = "1";
 }
 
 function updateGenBtn() {
@@ -645,7 +650,7 @@ async function addFiles(files) {
   renderPhotos();
   updateGenBtn();
   if (skipped) toast("You can add up to " + cap + " photos for this template - the rest were skipped.");
-  if (isMultiTpl()) recognizeLabels();
+  if (isMultiTpl() || isTop5Tpl()) recognizeLabels();
 }
 
 /* Auto-fill design names for the multi-photo template: after upload, ask the
@@ -653,7 +658,7 @@ async function addFiles(files) {
    the result into the matching name input — without overwriting what the user
    has already typed. */
 async function recognizeLabels() {
-  if (!isMultiTpl()) return;
+  if (!isMultiTpl() && !isTop5Tpl()) return;
   const need = [];
   ST.photos.forEach((p, i) => {
     if (!ST.labels[i] && !ST._recogDone[p.path]) {
@@ -993,26 +998,18 @@ async function refreshPalettePanel(force) {
 function renderSwatchRows() {
   const box = $("#wlSwatches");
   if (!box) return;
+  // 2026-11-06 user: swatches in one horizontal row; the per-swatch colour-name
+  // inputs are gone (names stay internal — only the shade is fine-tunable).
   box.innerHTML = "";
+  box.style.cssText = "display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;align-items:center";
   (ST.paletteCols || []).forEach((c) => {
-    const row = document.createElement("div");
-    row.style.cssText = "display:flex;gap:8px;align-items:center";
     const pick = document.createElement("input");
     pick.type = "color";
     pick.value = /^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#CCCCCC";
+    pick.title = c.name || "Colour";
     pick.style.cssText = "width:42px;height:34px;padding:2px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer";
     pick.addEventListener("input", () => { c.hex = pick.value; });
-    const name = document.createElement("input");
-    name.type = "text";
-    name.maxLength = 30;
-    name.value = c.name || "";
-    name.placeholder = "Colour name";
-    name.className = "name-input";
-    name.style.cssText = "flex:1";
-    name.addEventListener("input", () => { c.name = name.value; });
-    row.appendChild(pick);
-    row.appendChild(name);
-    box.appendChild(row);
+    box.appendChild(pick);
   });
 }
 
@@ -1346,16 +1343,16 @@ async function generate() {
       applyBgm(body);
       ({ job } = await api("/api/three-screen", body));
     } else if (t.pipeline === "top5") {
-      // TOP 5 Countdown: 3-8 product photos, a maroon rank number + style SKU
-      // beside it on every shot. SKU/rank are optional per photo; blank rank = auto
+      // TOP 5 Countdown: N product photos, a maroon rank number + the
+      // auto-recognized design name beside it on every shot (blank rank = auto
       // countdown (n, n-1, … 01 from first to last photo).
       const body = {
         project: ST.project.id,
         srcs: srcs,
-        skus: ST.skus.slice(0, srcs.length),
-        nums: ST.nums.slice(0, srcs.length),
-        captions: ST.caps.slice(0, srcs.length),
-        title_main: ($("#t5Title") && $("#t5Title").value.trim()) || "TOP 5",
+        skus: ST.labels.slice(0, srcs.length),
+        nums: [],
+        captions: [],
+        title_main: ($("#t5Title") && $("#t5Title").value.trim()) || ("TOP " + srcs.length),
         title_sub: ($("#t5Sub") ? $("#t5Sub").value.trim() : ""),
         ratio: ratioApi(ST.ratio),
         fps: 30,

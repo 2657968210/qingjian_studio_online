@@ -111,7 +111,13 @@ def overlay(frame_rgb, num_str, style, W, H, cap=None):
     # No scrim / plate behind the text (user 2026-10-28: plain white + stroke only) —
     # a busy photo in this region is handled by swapping the photo, not a backdrop.
     if style:
-        sf = pick_font(56, bold=True)
+        # 2026-11-06：自动识别的设计名可能远长于短 SKU → 字号收缩适配可用宽度
+        fs_ = 56
+        max_w = W - (bx0 + bw + 24) - 30
+        sf = pick_font(fs_, bold=True)
+        while fs_ > 26 and d.textlength(style, font=sf) > max_w:
+            fs_ -= 4
+            sf = pick_font(fs_, bold=True)
         tb = d.textbbox((0, 0), style, font=sf)
         tx = bx0 + bw + 24
         ty = (by1 - 50.0) - (tb[1] + tb[3]) / 2.0

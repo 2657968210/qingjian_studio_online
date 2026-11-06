@@ -119,8 +119,8 @@
       <div class="hint" id="uprog" hidden></div>
 
       <div class="t5-title-wrap" id="t5TitleWrap" hidden>
-        <label class="field"><span>Opening title &middot; headline of the first scene (e.g. TOP 5)</span>
-          <input type="text" id="t5Title" maxlength="24" value="TOP 5"></label>
+        <label class="field"><span>Opening title &middot; headline of the first scene (blank = TOP + photo count)</span>
+          <input type="text" id="t5Title" maxlength="24" placeholder="Auto &mdash; e.g. TOP 6"></label>
         <label class="field"><span>Opening subtitle &middot; optional small line under the title</span>
           <input type="text" id="t5Sub" maxlength="60" placeholder="Optional &mdash; leave blank to skip"></label>
       </div>
@@ -223,8 +223,8 @@
               <button class="btn btn-quiet" id="wlRedetect" type="button" style="margin:0">Detect colours again</button>
             </div>
             <!-- 2026-11-05 用户③：色板编辑器——每档颜色可改名/微调色值，只展示图中实际出现的颜色 -->
-            <div id="wlSwatches" style="margin-top:10px;display:flex;flex-direction:column;gap:6px"></div>
-            <span class="hint" style="display:block;margin-top:6px">Swatches are detected from your photos &mdash; rename any colour or fine-tune its shade. Only colours actually present are shown.</span>
+            <div id="wlSwatches" style="margin-top:10px;display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;align-items:center"></div>
+            <span class="hint" style="display:block;margin-top:6px">Swatches are detected from your photos &mdash; fine-tune any shade before rendering. Only colours actually present are shown.</span>
           </div>
           <div id="capFieldsLine" hidden>
             <label class="field"><span>Video headline</span>
