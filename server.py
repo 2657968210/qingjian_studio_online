@@ -3315,7 +3315,11 @@ class Handler(SimpleHTTPRequestHandler):
                 project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
                 silent true 则跳过配乐（默认配 Wedding_01_657 婚礼竖琴向 BGM，2026-11-02 指定；
                   不与其他模版 BGM 重复） /
-                返回：异步 job，result 含 {video, file, secs, images, ratio}
+                captions {on, text} step4「Add Captions」：on=true 烧一行产品介绍于中上方；
+                voiceover {on, selling, cta} step4 三段式口播(2026-11-09 起可选，与 captions 同开时
+                  以 voiceover 字幕为准)；任何失败不影响画面交付
+                返回：异步 job，result 含 {video, file, secs, images, ratio,
+                captions(布尔), voiceover(布尔), voiceover_error}
                 """
                 body = self.read_body_json()
                 branding = body.get("branding") or None
@@ -3367,6 +3371,7 @@ class Handler(SimpleHTTPRequestHandler):
                             traceback.print_exc()
                     # BGM：2026-11-02 指定 Wedding_01_657（婚礼竖琴向，不与其他模版重复）；
                     # 失败不影响画面交付。
+                    _bf = None
                     if not body.get("silent"):
                         try:
                             _bf = _bgm_pick(body, "Wedding_01_657.mp3")
@@ -3379,6 +3384,34 @@ class Handler(SimpleHTTPRequestHandler):
                                     os.replace(_mix, out)
                         except BaseException:
                             traceback.print_exc()
+                    # 口播后处理（step4 Captions & Voiceover 可选）：三段式配音+字幕。
+                    # 字幕烧中下（sub_pos="lower"）；任何失败只打印，仍交付无口播成片。
+                    _vo = body.get("voiceover") or {}
+                    vo_meta = None
+                    vo_error = None
+                    if _vo.get("on"):
+                        try:
+                            from core import voiceover as _volib
+                            _cfg = dict(CONFIG.get("storyboard_api") or {})
+
+                            def _vprog(done, total_, msg=""):
+                                job_progress(jid, 92 + int(done) * 8 // max(1, int(total_ or 100)),
+                                             100, msg or "Adding voiceover")
+
+                            _vo_out = out + ".vo.mp4"
+                            vo_meta = _volib.voiceover_on_rendered(
+                                out, _vo_out, srcs, 0.0, secs, secs, [],
+                                str(_vo.get("selling") or "").strip(),
+                                str(_vo.get("cta") or "view").strip(),
+                                _cfg, progress=_vprog, fallback_bgm=_bf,
+                                beats=_volib.three_act_beats(secs),
+                                sub_pos="lower")
+                            if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
+                                os.replace(_vo_out, out)
+                        except BaseException as _vo_exc:
+                            traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3390,7 +3423,9 @@ class Handler(SimpleHTTPRequestHandler):
                     else:
                         video = "/media/decorshow/%s" % base
                     return {"video": video, "file": out, "secs": secs,
-                            "images": res["images"], "ratio": res.get("ratio")}
+                            "images": res["images"], "ratio": res.get("ratio"),
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
@@ -3403,8 +3438,10 @@ class Handler(SimpleHTTPRequestHandler):
                 不循环、不卡顿）；客户可改文字、选择是否加文字、图片 ≤12 张。
                 入参(JSON)：srcs 图片路径(2~12) / project / ratio / fps /
                 text 开场标题(可选，空则回退默认句) / show_text 是否加标题(bool, 默认 True) /
-                silent(默认 False) / branding(可选)
-                返回：异步 job，result 含 {video, file, secs, images, ratio}"""
+                silent(默认 False) / branding(可选) /
+                voiceover {on, selling, cta} step4 三段式口播(2026-11-09 起可选)；任何失败不影响画面交付
+                返回：异步 job，result 含 {video, file, secs, images, ratio,
+                voiceover(布尔), voiceover_error}"""
                 body = self.read_body_json()
                 branding = body.get("branding") or None
                 pid = body.get("project")
@@ -3438,6 +3475,7 @@ class Handler(SimpleHTTPRequestHandler):
                                               text=text, use_text=use_text, progress=prog)
                     secs = res["secs"]
                     # BGM：固定用原曲卡点曲（做好那版视频用的），单次播放随片长截断、不循环、不卡顿
+                    _bf = None
                     if not body.get("silent"):
                         try:
                             _bf = _bgm_pick(body, "bw_reveal_bgm.mp3")
@@ -3450,6 +3488,34 @@ class Handler(SimpleHTTPRequestHandler):
                                     os.replace(_mix, out)
                         except BaseException:
                             traceback.print_exc()
+                    # 口播后处理（step4 Captions & Voiceover 可选）：三段式配音+字幕。
+                    # 字幕烧中下（sub_pos="lower"）；任何失败只打印，仍交付无口播成片。
+                    _vo = body.get("voiceover") or {}
+                    vo_meta = None
+                    vo_error = None
+                    if _vo.get("on"):
+                        try:
+                            from core import voiceover as _volib
+                            _cfg = dict(CONFIG.get("storyboard_api") or {})
+
+                            def _vprog(done, total_, msg=""):
+                                job_progress(jid, 92 + int(done) * 8 // max(1, int(total_ or 100)),
+                                             100, msg or "Adding voiceover")
+
+                            _vo_out = out + ".vo.mp4"
+                            vo_meta = _volib.voiceover_on_rendered(
+                                out, _vo_out, srcs, 0.0, secs, secs, [],
+                                str(_vo.get("selling") or "").strip(),
+                                str(_vo.get("cta") or "view").strip(),
+                                _cfg, progress=_vprog, fallback_bgm=_bf,
+                                beats=_volib.three_act_beats(secs),
+                                sub_pos="lower")
+                            if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
+                                os.replace(_vo_out, out)
+                        except BaseException as _vo_exc:
+                            traceback.print_exc()
+                            # 2026-11-05 诊断改造：口播失败原因带回 job 结果。
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
                     base = os.path.basename(out)
                     if pid:
                         p2 = load_project(pid)
@@ -3461,7 +3527,9 @@ class Handler(SimpleHTTPRequestHandler):
                     else:
                         video = "/media/bwreveal/%s" % base
                     return {"video": video, "file": out, "secs": secs,
-                            "images": res["images"], "ratio": res.get("ratio")}
+                            "images": res["images"], "ratio": res.get("ratio"),
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 

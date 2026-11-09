@@ -74,7 +74,7 @@ function isCarouselTpl() {
   return !!(ST.template && ST.template.pipeline === "carousel");
 }
 
-/* The Decor Showcase template: 3-12 photos, per-photo full-frame camera move, no voiceover. */
+/* The Decor Showcase template: 3-12 photos, per-photo full-frame camera move; voiceover optional (step-4 toggle). */
 function isDecorTpl() {
   return !!(ST.template && ST.template.pipeline === "decor_show");
 }
@@ -1407,21 +1407,24 @@ async function generate() {
       applyBgm(body);
       ({ job } = await api("/api/carousel", body));
     } else if (t.pipeline === "decor_show") {
-      // Decor Showcase: 3-12 photos -> per-photo full-frame camera move, no voiceover.
-      // 2026-11-03: optional on-screen caption line (burned upper-middle, like the
-      // other no-native-text templates); blank field -> server drafts one from photos.
+      // Decor Showcase: 3-12 photos -> per-photo full-frame camera move.
+      // 2026-11-03: optional on-screen caption line (burned upper-middle).
+      // 2026-11-09: voiceover now optional (step-4 toggle), same as other templates;
+      // when voiceover is on its subtitle is the on-screen text, so skip the caption line.
       const body = {
         project: ST.project.id,
         srcs: srcs,
         ratio: ratioApi(ST.ratio),
         fps: 30,
       };
-      if (capOn()) {
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      if (capOn() && !vo) {
         body.captions = { on: true, text: (($("#decorCap") && $("#decorCap").value.trim()) || ""),
                           font: capFontKey() };
       }
       setRender(2, "Building your decor showcase in " + ST.ratio + "…");
-      applyBgm(body);   // folds branding + BGM (this template has no voiceover)
+      applyBgm(body);   // folds branding + BGM
       ({ job } = await api("/api/decor-show", body));
     } else if (t.pipeline === "collage_palette") {
       // Wedding Look Collage: 3-12 photos -> two-column collage + auto colour
@@ -1456,7 +1459,8 @@ async function generate() {
       ({ job } = await api("/api/collage-palette", body));
     } else if (t.pipeline === "bw_reveal") {
       // B&W → Color Reveal: 2-12 photos -> each opens B&W then reveals in colour
-      // with a continuous camera move; optional opening title (Add Captions toggle).
+      // with a continuous camera move; optional opening title (Add Captions toggle)
+      // and optional voiceover (step-4 toggle, 2026-11-09).
       const body = {
         project: ST.project.id,
         srcs: srcs,
@@ -1469,6 +1473,8 @@ async function generate() {
       } else {
         body.show_text = false;
       }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
       setRender(2, "Building your B&W → Color reveal in " + ST.ratio + "…");
       applyBgm(body);   // server keeps its fixed card-point BGM (bw_reveal_bgm.mp3)
       ({ job } = await api("/api/bw-reveal", body));
