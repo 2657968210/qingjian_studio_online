@@ -749,3 +749,6 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
 
 /* 上传照片缩略图：可点击放大预览 */
 .photos .thumb img { cursor: zoom-in; }
+
+/* 2026-11-10 user：必填字段校验未通过时的高亮 */
+input.bad, textarea.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 2px rgba(211,47,47,.18); }

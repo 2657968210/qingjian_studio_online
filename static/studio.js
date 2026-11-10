@@ -893,6 +893,9 @@ function renderStep4() {
   const NATIVE_FONT_TPL = ["multi_suite", "four_grid", "collage_palette",
                            "fast_cut", "top5", "carousel", "bw_reveal"];
   const nativeFont = NATIVE_FONT_TPL.indexOf(pipe) >= 0;
+  // 2026-11-10 user：decor_show 字体入口对齐 Beat-Synced Showcase(fast_cut)——隐藏字体选择、固定 Cormorant italic；
+  // 但不改其 Captions 默认关闭状态（nativeFont 仍按 NATIVE_FONT_TPL 判定）。
+  const hideFontPick = nativeFont || pipe === "decor_show";
   // 2026-11-03：Captions 默认开启**只针对有原生文字设计的模版**；无文字模版
   // （card_pan/scroll_gallery/three_screen/decor_show）默认关。仅在该模版首次
   // 进入 step4 时设默认值，不覆盖客户手动改过的开关（换模版则重设）。
@@ -922,8 +925,8 @@ function renderStep4() {
   // 对应输入框 → 开关打开也不显示空的 capFields。
   const cf = $("#capFields");
   if (cf) cf.hidden = !capOn() || pipe === "top5" || pipe === "carousel";
-  const fw = $("#capFontWrap"); if (fw) fw.hidden = nativeFont;
-  const fp = $("#fontPreview"); if (fp) fp.hidden = nativeFont;
+  const fw = $("#capFontWrap"); if (fw) fw.hidden = hideFontPick;
+  const fp = $("#fontPreview"); if (fp) fp.hidden = hideFontPick;
   const vf = $("#voFields"); if (vf) vf.hidden = !($("#voOn") && $("#voOn").checked);
   // Branding toggle: reveal the logo/tagline fields only when switched on (2026-11-03).
   const bOn = !!($("#brandOn") && $("#brandOn").checked);
@@ -1217,10 +1220,42 @@ async function uploadBgm(file) {
   }
 }
 
+// 2026-11-10 user：指定模板的关键文字字段必填——开启 Captions 后必须填写，否则拦截生成。
+const REQUIRED_TEXT = {
+  decor_show:    ["decorCap"],
+  multi_suite:   ["colTitle"],
+  cinematic_cut: ["cinText"],
+  three_screen:  ["tsText"],
+};
+const REQ_LABEL = {
+  decorCap: "On-screen text", colTitle: "Collection title",
+  cinText: "On-screen caption", tsText: "On-screen subtitle",
+};
+function checkRequiredText() {
+  const pipe = ST.template ? ST.template.pipeline : "";
+  const ids = REQUIRED_TEXT[pipe];
+  if (!ids || !capOn()) return { ok: true, missing: [] };
+  const missing = [];
+  for (const id of ids) {
+    const el = $("#" + id);
+    if (el && !el.value.trim()) missing.push({ id, el });
+  }
+  return { ok: missing.length === 0, missing };
+}
+
 async function generate() {
   if (!ST.template || !ST.photos.length) { toast("Pick a template and add a photo first."); return; }
   if (ST.logoUploading) { toast("Please wait — your logo is still uploading."); return; }
   if (ST.busy) return;
+  const req = checkRequiredText();
+  if (!req.ok) {
+    req.missing.forEach((m, i) => {
+      m.el.classList.add("bad");
+      if (i === 0) m.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    toast("请先填写必填文字：" + req.missing.map((m) => REQ_LABEL[m.id] || m.id).join("、"), 4600);
+    return;
+  }
   ST.busy = true;
   ST.rendered = false;
   goStep(5);
