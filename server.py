@@ -3847,6 +3847,118 @@ class Handler(SimpleHTTPRequestHandler):
                 run_job(jid, work, branding=branding)
                 return self.send_json({"job": jid})
 
+            if p == "/api/zoom-punch":
+                """甩镜变焦模版（Whip-Zoom Showcase）—— 复刻参考片 韩梦瑶分享的视频.mp4。
+
+                与 /api/fast-cut（Beat-Synced，硬切静止）完全独立：管线在 core.zoom_punch
+                （每张图出场 1 次、每镜 ~1.8s 居中 Ken Burns 推拉交替；镜间 0.4s 甩镜
+                变焦转场——前镜加速放大+径向动态模糊、后镜回落、中点重模糊处换镜；
+                开场白条深色衬线标题（两行 + 四角星装饰，参考片原文样式）淡入淡出；
+                原图直出无滤镜调色），不动其它模版的编排。
+
+                入参(JSON)：srcs 图片路径列表(必填，3~99 张) /
+                title 标题文字(可选，默认 "2027 New Collection · Laser cut invites"；
+                  "·" 或换行分两行) /
+                show_title false 则完全不叠标题(默认 false＝opt-in) /
+                project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
+                silent true 则跳过配乐（默认配 canon_in_d 优雅古典向，与其他模版不重复） /
+                voiceover {on, selling, cta} 三段式口播(可选)：字幕烧中下，失败不影响交付。
+                返回：异步 job，result 含 {video, file, secs, images, ratio,
+                captions(布尔), voiceover(布尔), voiceover_error}；
+                secs = N×1.8 + (N-1)×0.4 随张数自动增加。
+                """
+                body = self.read_body_json()
+                branding = body.get("branding") or None
+                pid = body.get("project")
+                srcs = [s for s in (body.get("srcs") or []) if s]
+                srcs = [s for s in srcs if os.path.isfile(s)]
+                if len(srcs) < 3:
+                    return self.send_json(
+                        {"error": "This template needs at least 3 photos — upload at least 3 photos first"}, 400)
+                if len(srcs) > 99:
+                    srcs = srcs[:99]
+                from core.card_pan import norm_ratio as _norm_ratio
+                ratio = _norm_ratio(body.get("ratio"))
+                fps = int(body.get("fps") or 30)
+                show_title = body.get("show_title", False)
+                if isinstance(show_title, str):
+                    show_title = show_title.lower() not in ("0", "false", "no")
+                from core.zoom_punch import DEFAULT_TITLE as _ZP_DEFAULT
+                title = str(body.get("title") or "").strip() or (_ZP_DEFAULT if show_title else "")
+                jid = new_job("zoom_punch")
+
+                def work():
+                    from core import zoom_punch as zp
+                    out_dir = os.path.join(project_path(pid) if pid else DATA, "zoompunch")
+                    os.makedirs(out_dir, exist_ok=True)
+                    stamp = time.strftime("%m%d%H%M%S") + uuid.uuid4().hex[:3]
+                    out = os.path.join(out_dir, "zoompunch_%s_%s.mp4" % (ratio, stamp))
+
+                    def prog(done, total_, msg=""):
+                        job_progress(jid, int(done), int(total_ or 100), msg)
+
+                    res = zp.render_zoom_punch(srcs, out, ratio=ratio, fps=fps,
+                                               title=title, show_title=show_title,
+                                               progress=prog, font=body.get("font"))
+                    secs = res["secs"]
+                    _bf = None
+                    # BGM：canon_in_d（优雅古典向，未被他模版占用）；失败不影响画面交付。
+                    if not body.get("silent"):
+                        try:
+                            _bf = _bgm_pick(body, "canon_in_d.mp3")
+                            if os.path.isfile(_bf):
+                                _mix = out + ".mix.mp4"
+                                job_progress(jid, 92, 100, "Adding music")
+                                compose.mix_bgm(out, _bf, _mix, gain_db=-4.0,
+                                                fade_in=0.8, fade_out=1.8)
+                                if os.path.isfile(_mix) and os.path.getsize(_mix) > 1024:
+                                    os.replace(_mix, out)
+                        except BaseException:
+                            traceback.print_exc()
+                    # 口播后处理（step4 可选）：三段式配音+字幕（烧中下）。失败只打印。
+                    _vo = body.get("voiceover") or {}
+                    vo_meta = None
+                    vo_error = None
+                    if _vo.get("on"):
+                        try:
+                            from core import voiceover as _volib
+                            _cfg = dict(CONFIG.get("storyboard_api") or {})
+
+                            def _vprog(done, total_, msg=""):
+                                job_progress(jid, 92 + int(done) * 8 // max(1, int(total_ or 100)),
+                                             100, msg or "Adding voiceover")
+
+                            _vo_out = out + ".vo.mp4"
+                            vo_meta = _volib.voiceover_on_rendered(
+                                out, _vo_out, srcs, 0.0, secs, secs, [],
+                                str(_vo.get("selling") or "").strip(),
+                                str(_vo.get("cta") or "view").strip(),
+                                _cfg, progress=_vprog, fallback_bgm=_bf,
+                                beats=_volib.three_act_beats(secs),
+                                sub_pos="lower")
+                            if os.path.isfile(_vo_out) and os.path.getsize(_vo_out) > 1024:
+                                os.replace(_vo_out, out)
+                        except BaseException as _vo_exc:
+                            traceback.print_exc()
+                            vo_error = "%s: %s" % (type(_vo_exc).__name__, _vo_exc)
+                    base = os.path.basename(out)
+                    if pid:
+                        p2 = load_project(pid)
+                        p2.setdefault("zoompunch", []).append(
+                            {"file": out, "name": "Whip-Zoom %ss" % secs,
+                             "kind": "zoompunch", "dur": secs})
+                        save_project(p2)
+                        video = "/media/%s/zoompunch/%s" % (pid, base)
+                    else:
+                        video = "/media/zoompunch/%s" % base
+                    return {"video": video, "file": out, "secs": secs,
+                            "images": res["images"], "ratio": res.get("ratio"),
+                            "captions": bool(show_title and title.strip()),
+                            "voiceover": bool(vo_meta),
+                            "voiceover_error": vo_error}
+                run_job(jid, work, branding=branding)
+                return self.send_json({"job": jid})
+
             if p == "/api/mix-cut":
                 g = self._ai_gate("caption")
                 if g:

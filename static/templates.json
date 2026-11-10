@@ -156,6 +156,20 @@
       ]
     },
     {
+      "id": "zoom_punch",
+      "name": "Whip-Zoom Showcase",
+      "category": "product",
+      "pipeline": "zoom_punch",
+      "cover": "/static/templates/tpl_zoompunch.mp4",
+      "poster": "/static/templates/tpl_zoompunch.jpg",
+      "target_secs": "scales with photo count (3-12)",
+      "recommended_ratio": "9:16",
+      "desc": "Punch into each design with fast whip-zoom transitions and a bold collection title.",
+      "moves": [
+        { "id": "summary", "label": "3-12 photos" }
+      ]
+    },
+    {
       "id": "bw_reveal",
       "name": "B&W → Color Reveal",
       "category": "wedding",

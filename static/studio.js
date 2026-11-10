@@ -891,7 +891,8 @@ function renderStep4() {
   // 2026-11-03：有原生文字设计的模版（含文字在 step2 的 TOP5/Carousel），
   // 字体字号按模版设计 → 隐藏客户字体选择与预览；无文字模版才可选字体。
   const NATIVE_FONT_TPL = ["multi_suite", "four_grid", "collage_palette",
-                           "fast_cut", "top5", "carousel", "bw_reveal"];
+                           "fast_cut", "top5", "carousel", "bw_reveal",
+                           "zoom_punch"];
   const nativeFont = NATIVE_FONT_TPL.indexOf(pipe) >= 0;
   // 2026-11-10 user：decor_show 字体入口对齐 Beat-Synced Showcase(fast_cut)——隐藏字体选择、固定 Cormorant italic；
   // 但不改其 Captions 默认关闭状态（nativeFont 仍按 NATIVE_FONT_TPL 判定）。
@@ -915,6 +916,8 @@ function renderStep4() {
   if (pipe === "collage_palette") refreshPalettePanel(false);
   const fl = $("#capFieldsLine"); if (fl) fl.hidden = !(pipe === "card_pan" || pipe === "scroll_gallery");
   const ff = $("#capFieldsFast"); if (ff) ff.hidden = pipe !== "fast_cut";
+  // Whip-Zoom Showcase: collection title field (dark serif on white bars design)
+  const fz = $("#capFieldsZoom"); if (fz) fz.hidden = pipe !== "zoom_punch";
   const fc2 = $("#capFieldsCin"); if (fc2) fc2.hidden = !cin;
   const ft = $("#capFieldsThree"); if (ft) ft.hidden = !three;
   const fb = $("#capFieldsBw"); if (fb) fb.hidden = pipe !== "bw_reveal";
@@ -974,6 +977,7 @@ const CAP_DEFAULTS = {
   decor_show:      { line: "Timeless details, beautifully made" },
   collage_palette: { title: "Weddings 2027" },
   bw_reveal:       { line: "details ...incoming" },
+  zoom_punch:      { line: "2027 New Collection \u00B7 Laser cut invites" },
 };
 /* 每个模版的文案输入框 id（与 index.html capFields* 一一对应） */
 const CAP_INPUTS = {
@@ -987,6 +991,7 @@ const CAP_INPUTS = {
   three_screen:    { line: "tsText" },
   decor_show:      { line: "decorCap" },
   bw_reveal:       { line: "bwText" },
+  zoom_punch:      { line: "zpText" },
 };
 function _capPut(id, val) {
   const el = $("#" + id);
@@ -1388,6 +1393,28 @@ async function generate() {
       setRender(2, "Building your fast-cut video in " + ST.ratio + "\u2026");
       applyBgm(body);
       ({ job } = await api("/api/fast-cut", body));
+    } else if (t.pipeline === "zoom_punch") {
+      // Whip-Zoom Showcase: Ken Burns per photo + whip-zoom transitions;
+      // opening title (dark serif on white bars) is optional (Add Captions
+      // toggle in step 4); blank field → server default reference text.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_title = true;
+        body.title = (($("#zpText") && $("#zpText").value.trim()) || "");
+        // 2026-11-10：标题按模版设计（深色衬线压白条），不用客户字体覆盖
+      } else {
+        body.show_title = false;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your whip-zoom video in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/zoom-punch", body));
     } else if (t.pipeline === "cinematic_cut") {
       // Cinematic Cut: 6–12 photos, beat-synced cut — a zoom-whoosh opens the
       // second shot exactly on the beat, a few shots rotate, the rest pan.
