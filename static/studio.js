@@ -915,6 +915,9 @@ function renderStep4() {
   const fc2 = $("#capFieldsCin"); if (fc2) fc2.hidden = !cin;
   const ft = $("#capFieldsThree"); if (ft) ft.hidden = !three;
   const fb = $("#capFieldsBw"); if (fb) fb.hidden = pipe !== "bw_reveal";
+  // Wedding Signage & Decor (decor_show): the only no-text template whose
+  // dedicated caption field block was never unhidden — surface decorCap.
+  const fd = $("#capFieldsDecor"); if (fd) fd.hidden = pipe !== "decor_show";
   // top5/carousel 的文字（标题/名次/SKU）在 step2 每图下编辑，step4 没有
   // 对应输入框 → 开关打开也不显示空的 capFields。
   const cf = $("#capFields");
