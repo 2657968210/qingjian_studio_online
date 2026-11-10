@@ -416,6 +416,15 @@ body {
 .btn-primary:disabled, .btn:disabled {
   background: var(--surface-sunk); border-color: var(--line); color: var(--ink-3); cursor: not-allowed;
 }
+/* 2026-11-10 user①：选模板后引导用户点击底部 Next 按钮的脉冲高亮 */
+@keyframes btnPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); box-shadow: 0 8px 22px rgba(170,122,76,.35); }
+}
+.btn-primary.pulse-on {
+  animation: btnPulse 1.4s ease-in-out 2;
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
 .btn-quiet { background: none; border-color: transparent; color: var(--ink-2); }
 .btn-quiet:hover { background: var(--surface-sunk); border-color: var(--line); color: var(--ink); }
 

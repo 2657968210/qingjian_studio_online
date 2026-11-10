@@ -201,7 +201,7 @@
           </div>
           <div id="capFieldsMulti" hidden>
             <label class="field"><span>Collection title · shown on the opening board</span>
-              <input id="colTitle" type="text" maxlength="60" placeholder="Our Collection"></label>
+              <input id="colTitle" type="text" maxlength="50" placeholder="Our Collection"></label>
           </div>
           <div id="capFieldsGrid" hidden>
             <div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -268,7 +268,8 @@
         </div>
         <div class="subcard-body" id="voFields" hidden>
           <label class="field"><span>Key product detail</span>
-            <input id="voSelling" type="text" maxlength="80" placeholder="hot-foil stamping on textured cotton paper"></label>
+            <input id="voSelling" type="text" maxlength="150" placeholder="hot-foil stamping on textured cotton paper">
+            <span class="char-count" id="voSellingCount" style="float:right;font-size:11px;color:var(--ink-3)">0 / 150</span></label>
           <label class="field"><span>Call to action</span>
             <select id="voCta" style="width:100%;max-width:420px">
               <option value="view">See the full collection</option>

@@ -309,6 +309,21 @@ function chooseTemplate(id) {
   renderGrid();
   updateTplSelection();
   renderRatios();
+  scrollToUseBtn();
+}
+
+/* 2026-11-10 user①：选好模板后，平滑滚动到页面底部的「Next」按钮并脉冲高亮，
+   引导用户点击进入下一步，不必自己翻找按钮。 */
+function scrollToUseBtn() {
+  const btn = $("#btnToStep2");
+  if (!btn || btn.disabled) return;
+  requestAnimationFrame(() => {
+    try { btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+    btn.classList.remove("pulse-on");
+    void btn.offsetWidth;          // 强制 reflow，确保动画重新触发
+    btn.classList.add("pulse-on");
+    setTimeout(() => btn.classList.remove("pulse-on"), 2800);
+  });
 }
 
 function updateTplSelection() {
@@ -876,7 +891,7 @@ function renderStep4() {
   // 2026-11-03：有原生文字设计的模版（含文字在 step2 的 TOP5/Carousel），
   // 字体字号按模版设计 → 隐藏客户字体选择与预览；无文字模版才可选字体。
   const NATIVE_FONT_TPL = ["multi_suite", "four_grid", "collage_palette",
-                           "fast_cut", "cinematic_cut", "top5", "carousel", "bw_reveal"];
+                           "fast_cut", "top5", "carousel", "bw_reveal"];
   const nativeFont = NATIVE_FONT_TPL.indexOf(pipe) >= 0;
   // 2026-11-03：Captions 默认开启**只针对有原生文字设计的模版**；无文字模版
   // （card_pan/scroll_gallery/three_screen/decor_show）默认关。仅在该模版首次
@@ -1343,7 +1358,7 @@ async function generate() {
       if (capOn()) {
         body.show_text = true;
         body.text = (($("#cinText") && $("#cinText").value.trim()) || "");
-        // 2026-11-03：字幕按模版设计（斜体通屏），不用客户字体覆盖
+        body.font = capFontKey();   // 2026-11-10 user②：放开 Cinematic 字体选择（后端已支持）
       } else {
         body.show_text = false;
       }
@@ -1663,6 +1678,14 @@ function bind() {
   if (capFontEl) capFontEl.addEventListener("change", updateFontPreview);
   const capFieldsEl = $("#capFields");
   if (capFieldsEl) capFieldsEl.addEventListener("input", updateFontPreview);
+  // 2026-11-10 user④：口播「Key product detail」实时字数计数（上限 150）
+  const voSellingEl = $("#voSelling");
+  if (voSellingEl) {
+    const vsc = $("#voSellingCount");
+    const upd = () => { if (vsc) vsc.textContent = voSellingEl.value.length + " / 150"; };
+    voSellingEl.addEventListener("input", upd);
+    upd();
+  }
   // 2026-11-04 · Color Palette 副标题：客户可改，也可一键按图重新识别
   // 2026-11-05：改为刷新色板编辑器（预设组合匹配 + 每档色名/色值可改）
   const wlRe = $("#wlRedetect");
