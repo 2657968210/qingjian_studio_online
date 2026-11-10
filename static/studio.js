@@ -927,6 +927,11 @@ function renderStep4() {
   if (cf) cf.hidden = !capOn() || pipe === "top5" || pipe === "carousel";
   const fw = $("#capFontWrap"); if (fw) fw.hidden = hideFontPick;
   const fp = $("#fontPreview"); if (fp) fp.hidden = hideFontPick;
+  // 2026-11-10：隐藏字体选择（decor_show / 原生文字模版，含 Beat-Synced）时，
+  // 强制落到 Beat-Synced 同款默认字 = Cormorant Garamond SemiBold Italic("italic")。
+  // 否则客户在其它可选字体模版改过 #capFont 后切过来，脏值残留会让 decor_show
+  // 与 Beat-Synced 字体不一致。
+  if (hideFontPick) { const _cf = $("#capFont"); if (_cf) _cf.value = "italic"; }
   const vf = $("#voFields"); if (vf) vf.hidden = !($("#voOn") && $("#voOn").checked);
   // Branding toggle: reveal the logo/tagline fields only when switched on (2026-11-03).
   const bOn = !!($("#brandOn") && $("#brandOn").checked);
