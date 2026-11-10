@@ -522,6 +522,7 @@ function updateGenBtn() {
   const decor = isDecorTpl();
   const collage = isCollageTpl();
   const bw = isBwRevealTpl();
+  const zp = ST.template && ST.template.pipeline === "zoom_punch";
   const n = ST.photos.length;
   // Per-template minimums must match the server endpoints:
   //   multi-suite (Collection)  → 2  (server.py /api/multi-suite: len(srcs) < 2)
@@ -534,7 +535,8 @@ function updateGenBtn() {
   //   decor-show (Decor)         → 3  (server.py /api/decor-show: len(srcs) < 3)
   //   collage-palette (Wedding Look) → 3  (server.py /api/collage-palette: len(srcs) < 3)
   //   bw_reveal (B&W->Color Reveal) → 2  (server.py /api/bw-reveal: len(srcs) < 2, cap 12)
-  const min = multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 5 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : bw ? 2 : 1;
+  //   zoom_punch (Whip-Zoom Showcase) → 3 (server.py /api/zoom-punch: len(srcs) < 3, cap 99)
+  const min = zp ? 3 : multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 5 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : bw ? 2 : 1;
   const recog = recogPending();
   $("#btnToStep3").disabled = n === 0 || ST.busy || n < min || recog;
   let eta = "";
@@ -551,6 +553,7 @@ function updateGenBtn() {
     if (car && n < 2) eta += " \u00B7 add one more photo to continue";
     if (collage && n < 3) eta += " \u00B7 add at least 3 photos to continue";
     if (bw && n < 2) eta += " \u00B7 add at least 2 photos to continue";
+    if (zp && n < 3) eta += " \u00B7 add at least 3 photos to continue";
     if (bw && n >= 12) eta += " \u00B7 maximum reached";
     if (recog) eta += " \u00B7 recognizing design names\u2026";
     if ((multi || four) && n >= 8) eta += " \u00B7 maximum reached";
@@ -1617,7 +1620,9 @@ function estimatedSeconds() {
   if (!t || !n) return null;
   const pipe = t.pipeline;
   let s = null;
-  if (pipe === "cinematic_cut") s = 4.8 + 0.56 * n;
+  // Whip-Zoom Showcase: n shots x 1.8s + (n-1) whip transitions x 0.4s
+  if (pipe === "zoom_punch") s = 1.8 * n + 0.4 * (n - 1);
+  else if (pipe === "cinematic_cut") s = 4.8 + 0.56 * n;
   else if (pipe === "three_screen") s = (3 * n + 9) * 0.5923;
   else if (pipe === "scroll_gallery") s = 5 + 2.8 * n;
   else if (pipe === "decor_show") s = 3 * n;
