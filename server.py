@@ -3852,7 +3852,8 @@ class Handler(SimpleHTTPRequestHandler):
                 转场按用户定稿改为「剪映里的常见转场」（干净规整、边缘锐利）。
 
                 与 /api/fast-cut（Beat-Synced，硬切静止）完全独立：管线在 core.zoom_punch
-                （每张图出场 1 次、每镜 ~1.8s 居中 Ken Burns 推拉交替；镜间 0.4s 转场
+                （每张图出场 1 次、每镜 ~1.8s **画面完全静止**——2026-11-11 用户定稿
+                「转场后图片不要加运镜」，全片仅转场本身在动；镜间 0.4s 转场
                 **逐个不同**——13 种按序列轮换、相邻永不重复，分三组：
                 推入/擦除 push_lr 左右推入(左右切入)/push_tb 上下推入/
                           wipe_lr 左右擦除/wipe_tb 上下擦除；
@@ -3871,6 +3872,8 @@ class Handler(SimpleHTTPRequestHandler):
                 transitions 转场名数组(可选；缺省按剪映风格序列自动轮换，相邻永不重复；
                   可选值 push_lr/push_tb/wipe_lr/wipe_tb/dissolve/flash/black/
                   zoom/rotate/glitch/mosaic/mirror/flip_page，非法值自动忽略) /
+                ken_burns 默认 false＝镜头内图片静止（推荐）；
+                  true 才恢复旧的 1.0→1.10 慢推/慢拉运镜 /
                 voiceover {on, selling, cta} 三段式口播(可选)：字幕烧中下，失败不影响交付。
                 返回：异步 job，result 含 {video, file, secs, images, ratio,
                 captions(布尔), voiceover(布尔), voiceover_error}；
@@ -3892,6 +3895,9 @@ class Handler(SimpleHTTPRequestHandler):
                 show_title = body.get("show_title", False)
                 if isinstance(show_title, str):
                     show_title = show_title.lower() not in ("0", "false", "no")
+                ken_burns = body.get("ken_burns", False)
+                if isinstance(ken_burns, str):
+                    ken_burns = ken_burns.lower() not in ("", "0", "false", "no")
                 from core.zoom_punch import DEFAULT_TITLE as _ZP_DEFAULT
                 title = str(body.get("title") or "").strip() or (_ZP_DEFAULT if show_title else "")
                 jid = new_job("zoom_punch")
@@ -3909,7 +3915,8 @@ class Handler(SimpleHTTPRequestHandler):
                     res = zp.render_zoom_punch(srcs, out, ratio=ratio, fps=fps,
                                                title=title, show_title=show_title,
                                                progress=prog, font=body.get("font"),
-                                               transitions=body.get("transitions"))
+                                               transitions=body.get("transitions"),
+                                               ken_burns=ken_burns)
                     secs = res["secs"]
                     _bf = None
                     # BGM：canon_in_d（优雅古典向，未被他模版占用）；失败不影响画面交付。

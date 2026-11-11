@@ -1397,7 +1397,8 @@ async function generate() {
       applyBgm(body);
       ({ job } = await api("/api/fast-cut", body));
     } else if (t.pipeline === "zoom_punch") {
-      // Whip-Zoom Showcase: Ken Burns per photo + whip-zoom transitions;
+      // Whip-Zoom Showcase: photos stay perfectly STILL (no camera move,
+      // 2026-11-11 user decision) — only the CapCut-style transitions move;
       // opening title (dark serif on white bars) is optional (Add Captions
       // toggle in step 4); blank field → server default reference text.
       const body = {
@@ -1415,7 +1416,7 @@ async function generate() {
       }
       const vo = voPayload();
       if (vo) body.voiceover = vo;
-      setRender(2, "Building your whip-zoom video in " + ST.ratio + "\u2026");
+      setRender(2, "Building your still-photo showcase in " + ST.ratio + "\u2026");
       applyBgm(body);
       ({ job } = await api("/api/zoom-punch", body));
     } else if (t.pipeline === "cinematic_cut") {

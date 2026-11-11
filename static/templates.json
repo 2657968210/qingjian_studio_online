@@ -164,7 +164,7 @@
       "poster": "/static/templates/tpl_zoompunch.jpg",
       "target_secs": "scales with photo count (3-12)",
       "recommended_ratio": "9:16",
-      "desc": "Clean CapCut-style cuts: left/right push-in, wipes, dissolve, flash, zoom, glitch, mosaic, mirror and page flip — each transition different, plus a bold collection title.",
+      "desc": "Clean CapCut-style cuts: left/right push-in, wipes, dissolve, flash, zoom, glitch, mosaic, mirror and page flip — each transition different. Photos stay perfectly still (no camera move); optional bold collection title.",
       "moves": [
         { "id": "summary", "label": "3-12 photos" }
       ]

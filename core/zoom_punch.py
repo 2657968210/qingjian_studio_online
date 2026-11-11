@@ -5,8 +5,10 @@
 转场按用户 2026-11-11 定稿口径改为「剪映里的常见转场」：干净、规整、边缘锐利，
 不再使用模糊 / 甩镜 / 拖影类效果。
 
-  * 每张图出场 1 次、按顺序播放、不循环；每镜 ~1.8s 慢推/慢拉 Ken Burns
-    （居中取景，奇偶镜推拉交替，产品恒在画面中央不被裁切）；
+  * 每张图出场 1 次、按顺序播放、不循环；每镜 ~1.8s **画面完全静止**
+    （2026-11-11 用户定稿：转场之后图片不再加运镜。居中 cover 取景一次生成，
+     整镜复用同一帧，产品恒在画面中央不被裁切；全片只有转场本身在动）；
+    可选 ken_burns=True 才启用旧的 1.0→1.10 慢推/慢拉（默认 False，零回归）；
   * 镜与镜之间 = **逐个不同的剪映风格转场**（0.4s），13 种手法按序列轮换、
     相邻永不重复，分三组：
       推入 / 滑入 / 擦除：push_lr 左右推入(左右切入) / push_tb 上下推入 /
@@ -29,13 +31,15 @@
 ----
 render_zoom_punch(images, out_path, ratio="9x16", fps=30,
                   title=DEFAULT_TITLE, show_title=True, progress=None,
-                  font=None, transitions=None)
+                  font=None, transitions=None, ken_burns=False)
   images     : 图片路径列表（3~99 张）
   title      : 标题文字（"·" 或换行分行；空则回退默认句）
   show_title : False 则完全不叠标题
   font       : 字体键（core.fonts；None = 衬线正体 CG，即参考片观感）
   transitions: 可选，转场序列（长度 >= n-1）；None = 自动轮换
-  返回 dict：{video, secs, images, ratio, transitions}
+  ken_burns  : False（默认）= 镜头内画面静止，只有转场动；
+               True = 恢复旧的逐帧 1.0→1.10 慢推/慢拉
+  返回 dict：{video, secs, images, ratio, transitions, still}
 """
 import os
 import math
@@ -59,7 +63,7 @@ SERIF = os.path.join(_FONT_DIR, "CormorantGaramond-SemiBold.ttf")
 # ---------------------------------------------------------------------------
 PER_SCENE = 1.8          # 每镜时长（s）
 TRANS = 0.4              # 转场时长（s）
-ZB_NEAR, ZB_FAR = 1.00, 1.10     # Ken Burns 收紧范围（居中，不裁产品）
+ZB_NEAR, ZB_FAR = 1.00, 1.10     # 可选 Ken Burns 收紧范围（默认静止只用 ZB_NEAR=1.0 全景）
 
 # 剪映风格转场序列：三组交错、左右切入优先、相邻永不重复。
 # 10 张图（9 个接点）即覆盖 推入/擦除 4 次、基础 3 次、特效 3 次。
@@ -489,8 +493,12 @@ def _title_alpha(t, total_secs, n):
 # ---------------------------------------------------------------------------
 def render_zoom_punch(images, out_path, ratio="9x16", fps=30,
                       title=DEFAULT_TITLE, show_title=True,
-                      progress=None, font=None, transitions=None):
-    """N(3~99) 张产品图 → 逐个不同转场的成片（仅画面，无音轨）。"""
+                      progress=None, font=None, transitions=None,
+                      ken_burns=False):
+    """N(3~99) 张产品图 → 逐个不同转场的成片（仅画面，无音轨）。
+
+    默认 ken_burns=False：镜头内图片静止，只有 0.4s 转场本身有动效。
+    """
     from core import fonts as _fonts
     paths = [p for p in (images or []) if p and os.path.isfile(p)]
     if len(paths) < MIN_PHOTOS:
@@ -518,15 +526,24 @@ def render_zoom_punch(images, out_path, ratio="9x16", fps=30,
     total = n * scene_f + (n - 1) * trans_f
     total_secs = total / float(fps)
 
-    # 每镜推拉方向：偶数镜推近(1.0->1.10)、奇数镜拉远(1.10->1.0)，首镜推近同参考片
-    dirs = []
-    for i in range(n):
-        dirs.append((ZB_NEAR, ZB_FAR) if i % 2 == 0 else (ZB_FAR, ZB_NEAR))
+    # 静止口径（2026-11-11 定稿，默认）：每张图只做一次居中 cover 取景，
+    # 整镜复用同一帧；转场首尾也用同一帧 → 转场结束直接落在静止画面，无跳变。
+    # ken_burns=True 才恢复旧的 1.0→1.10 奇偶推拉（逐帧重算取景）。
+    if ken_burns:
+        dirs = [(ZB_NEAR, ZB_FAR) if i % 2 == 0 else (ZB_FAR, ZB_NEAR)
+                for i in range(n)]
+    else:
+        dirs = [(ZB_NEAR, ZB_NEAR) for _ in range(n)]
 
     # 预生成每镜「结束态 / 起始态」全尺寸帧：转场只做几何合成，
     # 不再触碰 4000px 源图 → 可全分辨率输出，推入/擦除边缘保持锐利。
-    end_frames = [_cover_crop(photos[i], dirs[i][1], W, H) for i in range(n)]
-    start_frames = [_cover_crop(photos[i], dirs[i][0], W, H) for i in range(n)]
+    if ken_burns:
+        end_frames = [_cover_crop(photos[i], dirs[i][1], W, H) for i in range(n)]
+        start_frames = [_cover_crop(photos[i], dirs[i][0], W, H) for i in range(n)]
+        still_frames = None
+    else:
+        still_frames = [_cover_crop(photos[i], ZB_NEAR, W, H) for i in range(n)]
+        end_frames = start_frames = still_frames
 
     # 每个接点的转场手法：按剪映风格序列轮换，相邻永不重复
     trans_kinds = resolve_transitions(n, transitions)
@@ -546,17 +563,33 @@ def render_zoom_punch(images, out_path, ratio="9x16", fps=30,
     try:
         frame_no = 0
         for si in range(n):
-            f0 = si * (scene_f + trans_f)
             z0, z1 = dirs[si]
+            # 静止模式：底图恒定，只在标题 alpha 变化时重算叠加并缓存，
+            # 整镜不再逐帧做 4000px LANCZOS 取景 → 快且画面绝对静止。
+            scene_base = None if ken_burns else still_frames[si]
+            title_cache = {}
             for k in range(scene_f):
-                frame = _kb_frame(photos[si], z0, z1, k / float(scene_f - 1), W, H)
+                if ken_burns:
+                    frame = _kb_frame(photos[si], z0, z1,
+                                      k / float(scene_f - 1), W, H)
+                else:
+                    frame = scene_base
                 # 标题（淡入淡出窗口内叠加）
                 if ttl_a is not None:
                     t = frame_no / float(fps)
                     a = _title_alpha(t, total_secs, n)
                     if a > 0.003:
-                        frame = (frame.astype(np.float32) * (1 - ttl_a * a)
-                                 + ttl_rgb * (ttl_a * a)).astype(np.uint8)
+                        if ken_burns:
+                            frame = (frame.astype(np.float32) * (1 - ttl_a * a)
+                                     + ttl_rgb * (ttl_a * a)).astype(np.uint8)
+                        else:
+                            ck = int(round(a * 500))
+                            if ck not in title_cache:
+                                aq = ck / 500.0
+                                title_cache[ck] = (
+                                    frame.astype(np.float32) * (1 - ttl_a * aq)
+                                    + ttl_rgb * (ttl_a * aq)).astype(np.uint8)
+                            frame = title_cache[ck]
                 proc.stdin.write(frame.tobytes())
                 frame_no += 1
             if si < n - 1:
@@ -591,4 +624,5 @@ def render_zoom_punch(images, out_path, ratio="9x16", fps=30,
         progress(100, 100, "Done")
     return {"video": out_path, "secs": round(total_secs, 2),
             "images": n, "ratio": ratio,
-            "transitions": trans_kinds}
+            "transitions": trans_kinds,
+            "still": not bool(ken_burns)}
