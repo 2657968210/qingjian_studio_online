@@ -34,6 +34,7 @@ import asyncio
 import subprocess
 
 import imageio_ffmpeg
+from PIL import Image, ImageDraw, ImageFont
 
 FF = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -285,7 +286,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Align, MarginL, MarginR, MarginV, Encoding
 Style: En,%(fontname)s,%(fsize)d,&H00FFFFFF,&H000019FF,&H00101010,&H96000000,%(fbold)d,%(fitalic)d,0,0,100,100,0,0,1,2.2,1.0,2,%(ml)d,%(mr)d,%(mv)d,1
-Style: Cap,%(fontname)s,%(fsize)d,&H00FFFFFF,&H000019FF,&H00202020,&H50000000,%(fbold)d,%(fitalic)d,0,0,100,100,0,0,3,3.0,0.0,2,%(ml)d,%(mr)d,%(mv)d,1
+Style: Cap,%(fontname)s,%(fsize)d,&H00FFFFFF,&H000019FF,&H00000000,&H00000000,%(fbold)d,%(fitalic)d,0,0,100,100,0,0,1,0.0,0.0,2,%(ml)d,%(mr)d,%(mv)d,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -294,7 +295,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def write_ass(path, cues, w=1080, h=1920, pos="bottom", size=None,
               fontname="Arial", bold=-1, italic=0, style="En"):
-    """style="Cap" 只给 captions 行用：半透明深色底板 + 白字，浅色请柬图上也看得清；
+    """style="Cap" 只给 captions 行用（2026-11-11 定稿）：纯白斜体、无底板、
+    垂直居中 44% 屏高、字号自适应——与 Beat-Synced Showcase 的画面文字完全同款；
     口播字幕仍用 En（描边+阴影），观感不变。"""
     # ★ PlayResX/PlayResY 必须写：缺省时 libass 按 384x288 解析，48px 字号会被
     #   放大 6 倍多且 MarginL 按比例左偏——字幕巨大、左侧被裁（本次实锤）。
@@ -312,7 +314,11 @@ def write_ass(path, cues, w=1080, h=1920, pos="bottom", size=None,
     lines = [ASS_HEAD % {"w": w, "h": h, "fsize": int(size or SUB_SIZE),
                          "ml": SUB_MARGIN_LR, "mr": SUB_MARGIN_LR, "mv": SUB_MARGIN_V,
                          "fontname": fontname, "fbold": int(bold), "fitalic": int(italic)}]
-    if pos == "upper":
+    if style == "Cap":
+        # 2026-11-11 用户②：captions 与 Beat-Synced Showcase(fast_cut/cinematic) 完全一致——
+        # 纯白斜体、无底板、字号自适应、垂直居中于 44% 屏高（同 core.fastcut.TEXT_CY）。
+        tag = "{\\an5\\pos(%d,%d)}" % (w // 2, int(round(h * 0.44)))
+    elif pos == "upper":
         tag = "{\\an5\\pos(%d,%d)}" % (w // 2, int(round(h * SUB_POS_UPPER)))
     elif pos == "lower":
         tag = "{\\an5\\pos(%d,%d)}" % (w // 2, int(round(h * SUB_POS_LOWER)))
@@ -718,12 +724,12 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
                   font=None):
     """把一行产品介绍文字全程烧在画面上（captions 开、voiceover 关时用）。
 
-    默认烧在中上方 + 加大字号（CAP_SIZE）——用户 2026-10-20 要求：无原生
-    文字的模版（Product Spotlight / Colour Inspiration）captions 放中上方、
-    字体大一点；Collection/Grid 顶部/中央有原生文字，不走这里。
+    2026-11-11 用户②：与 Beat-Synced Showcase(fast_cut / cinematic) **完全一致**——
+    纯白斜体、无底板、字号自适应（上限 100、按 62% 屏宽收缩）、垂直居中于 44%
+    屏高（同 core.fastcut._build_text_overlay 的 TEXT_W_RATIO / TEXT_CY）。
     font: 客户自选字体键（2026-10-26 core.fonts 注册表）——ASS Fontname 写
     字体族名、subtitles 滤镜加 fontsdir 指到随包 static/fonts/，libass 按
-    族名+Bold/Italic 旗标精确匹配（None = 默认斜体 CG，即各模版现行观感）。
+    族名+Bold/Italic 旗标精确匹配（None = 默认斜体 CG，即 Beat-Synced 同款观感）。
     视频流重编码（烧字幕），音频流 copy；不改原文件。
     """
     from core import fonts as _fonts
@@ -739,7 +745,19 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
         progress(50, 100, "Burning on-screen text")
     ass_path = os.path.join(work_dir, "cap.ass")
     fb, fi = _fonts.ass_flags(font)
-    write_ass(ass_path, [(line, 0.0, vdur)], w, h, pos=sub_pos, size=CAP_SIZE,
+    # 字号自适应：与 core.fastcut._build_text_overlay 同一套算法（上限 100、
+    # 按 62% 屏宽收缩），保证和 Beat-Synced 视觉一致（而不是旧版固定 72 号字）。
+    fpath = _fonts.ttf(font) or _fonts.ttf(None)
+    target_w = int(w * 0.62)
+    size = 100
+    while size > 10:
+        f = ImageFont.truetype(fpath, size)
+        d0 = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
+        bb = d0.textbbox((0, 0), line, font=f)
+        if (bb[2] - bb[0]) <= target_w:
+            break
+        size -= 2
+    write_ass(ass_path, [(line, 0.0, vdur)], w, h, pos=sub_pos, size=size,
               fontname=_fonts.ass_family(font), bold=fb, italic=fi,
               style="Cap")
     esc = ass_path.replace("\\", "/").replace(":", "\\:")

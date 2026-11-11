@@ -897,9 +897,11 @@ function renderStep4() {
                            "fast_cut", "top5", "carousel", "bw_reveal",
                            "zoom_punch"];
   const nativeFont = NATIVE_FONT_TPL.indexOf(pipe) >= 0;
-  // 2026-11-10 user：decor_show 字体入口对齐 Beat-Synced Showcase(fast_cut)——隐藏字体选择、固定 Cormorant italic；
-  // 但不改其 Captions 默认关闭状态（nativeFont 仍按 NATIVE_FONT_TPL 判定）。
-  const hideFontPick = nativeFont || pipe === "decor_show";
+  // 2026-11-11 用户②：Wedding Signage & Decor(decor_show) 字体入口对齐 Beat-Synced——
+  // 显示字体下拉（默认斜体 CG），让客户可选 serif/light/script；不再隐藏。
+  // 所以字体选择只在「有原生文字设计的模版」隐藏，其余（含 decor_show / card_pan /
+  // cinematic_cut）一律显示下拉。
+  const hideFontPick = nativeFont;
   // 2026-11-03：Captions 默认开启**只针对有原生文字设计的模版**；无文字模版
   // （card_pan/scroll_gallery/three_screen/decor_show）默认关。仅在该模版首次
   // 进入 step4 时设默认值，不覆盖客户手动改过的开关（换模版则重设）。
@@ -927,6 +929,11 @@ function renderStep4() {
   // Wedding Signage & Decor (decor_show): the only no-text template whose
   // dedicated caption field block was never unhidden — surface decorCap.
   const fd = $("#capFieldsDecor"); if (fd) fd.hidden = pipe !== "decor_show";
+  // 2026-11-11 用户③：Wedding Color Inspiration(scroll_gallery) 与 Three-Panel
+  // Showcase(three_screen) 不要文字选项 → 直接隐藏整个 On-Screen Text 子卡
+  // （开关 + 字体下拉 + 文案输入框一并隐藏），与其它模版切换时再按各自规则显示。
+  const noText = pipe === "scroll_gallery" || pipe === "three_screen";
+  const sc0 = $("#subCaptions"); if (sc0) sc0.hidden = noText;
   // top5/carousel 的文字（标题/名次/SKU）在 step2 每图下编辑，step4 没有
   // 对应输入框 → 开关打开也不显示空的 capFields。
   const cf = $("#capFields");
@@ -1238,7 +1245,6 @@ const REQUIRED_TEXT = {
   decor_show:    ["decorCap"],
   multi_suite:   ["colTitle"],
   cinematic_cut: ["cinText"],
-  three_screen:  ["tsText"],
 };
 const REQ_LABEL = {
   decorCap: "On-screen text", colTitle: "Collection title",
