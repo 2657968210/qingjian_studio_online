@@ -3851,8 +3851,10 @@ class Handler(SimpleHTTPRequestHandler):
                 """甩镜变焦模版（Whip-Zoom Showcase）—— 复刻参考片 韩梦瑶分享的视频.mp4。
 
                 与 /api/fast-cut（Beat-Synced，硬切静止）完全独立：管线在 core.zoom_punch
-                （每张图出场 1 次、每镜 ~1.8s 居中 Ken Burns 推拉交替；镜间 0.4s 甩镜
-                变焦转场——前镜加速放大+径向动态模糊、后镜回落、中点重模糊处换镜；
+                （每张图出场 1 次、每镜 ~1.8s 居中 Ken Burns 推拉交替；镜间 0.4s 转场
+                **逐个不同**——按参考片拆解的 7 种手法轮换：punch 放射缩放模糊 /
+                slices 竖条挤压 / radial 旋转放射 / soft 柔和淡化 / cut 硬切 /
+                defocus 失焦泛白 / hwhip 水平甩切，相邻永不重复；
                 开场白条深色衬线标题（两行 + 四角星装饰，参考片原文样式）淡入淡出；
                 原图直出无滤镜调色），不动其它模版的编排。
 
@@ -3862,6 +3864,8 @@ class Handler(SimpleHTTPRequestHandler):
                 show_title false 则完全不叠标题(默认 false＝opt-in) /
                 project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
                 silent true 则跳过配乐（默认配 canon_in_d 优雅古典向，与其他模版不重复） /
+                transitions 转场名数组(可选；缺省按参考片顺序自动轮换，相邻永不重复；
+                  可选值 punch/slices/radial/soft/cut/defocus/hwhip，非法值自动忽略) /
                 voiceover {on, selling, cta} 三段式口播(可选)：字幕烧中下，失败不影响交付。
                 返回：异步 job，result 含 {video, file, secs, images, ratio,
                 captions(布尔), voiceover(布尔), voiceover_error}；
@@ -3899,7 +3903,8 @@ class Handler(SimpleHTTPRequestHandler):
 
                     res = zp.render_zoom_punch(srcs, out, ratio=ratio, fps=fps,
                                                title=title, show_title=show_title,
-                                               progress=prog, font=body.get("font"))
+                                               progress=prog, font=body.get("font"),
+                                               transitions=body.get("transitions"))
                     secs = res["secs"]
                     _bf = None
                     # BGM：canon_in_d（优雅古典向，未被他模版占用）；失败不影响画面交付。
