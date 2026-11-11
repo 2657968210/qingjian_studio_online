@@ -3848,13 +3848,17 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"job": jid})
 
             if p == "/api/zoom-punch":
-                """甩镜变焦模版（Whip-Zoom Showcase）—— 复刻参考片 韩梦瑶分享的视频.mp4。
+                """剪映风格转场模版（Whip-Zoom Showcase）—— 编排取自参考片，
+                转场按用户定稿改为「剪映里的常见转场」（干净规整、边缘锐利）。
 
                 与 /api/fast-cut（Beat-Synced，硬切静止）完全独立：管线在 core.zoom_punch
                 （每张图出场 1 次、每镜 ~1.8s 居中 Ken Burns 推拉交替；镜间 0.4s 转场
-                **逐个不同**——按参考片拆解的 7 种手法轮换：punch 放射缩放模糊 /
-                slices 竖条挤压 / radial 旋转放射 / soft 柔和淡化 / cut 硬切 /
-                defocus 失焦泛白 / hwhip 水平甩切，相邻永不重复；
+                **逐个不同**——13 种按序列轮换、相邻永不重复，分三组：
+                推入/擦除 push_lr 左右推入(左右切入)/push_tb 上下推入/
+                          wipe_lr 左右擦除/wipe_tb 上下擦除；
+                基础类   dissolve 叠化/flash 闪白/black 黑场/zoom 缩放/rotate 旋转；
+                特效类   glitch 故障/mosaic 马赛克/mirror 镜像分屏/flip_page 翻页。
+                10 张图即覆盖前 9 种（含 2 次左右切入）；转场帧全分辨率合成，硬边锐利；
                 开场白条深色衬线标题（两行 + 四角星装饰，参考片原文样式）淡入淡出；
                 原图直出无滤镜调色），不动其它模版的编排。
 
@@ -3864,8 +3868,9 @@ class Handler(SimpleHTTPRequestHandler):
                 show_title false 则完全不叠标题(默认 false＝opt-in) /
                 project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
                 silent true 则跳过配乐（默认配 canon_in_d 优雅古典向，与其他模版不重复） /
-                transitions 转场名数组(可选；缺省按参考片顺序自动轮换，相邻永不重复；
-                  可选值 punch/slices/radial/soft/cut/defocus/hwhip，非法值自动忽略) /
+                transitions 转场名数组(可选；缺省按剪映风格序列自动轮换，相邻永不重复；
+                  可选值 push_lr/push_tb/wipe_lr/wipe_tb/dissolve/flash/black/
+                  zoom/rotate/glitch/mosaic/mirror/flip_page，非法值自动忽略) /
                 voiceover {on, selling, cta} 三段式口播(可选)：字幕烧中下，失败不影响交付。
                 返回：异步 job，result 含 {video, file, secs, images, ratio,
                 captions(布尔), voiceover(布尔), voiceover_error}；

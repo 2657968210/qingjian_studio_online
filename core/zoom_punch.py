@@ -1,27 +1,29 @@
 # -*- coding: utf-8 -*-
-"""Whip-Zoom Showcase（zoom_punch）—— N 张产品图 → 甩镜变焦转场 + 白条深色衬线标题。
+"""Whip-Zoom Showcase（zoom_punch）—— N 张产品图 → 剪映风格规整转场 + 白条深色衬线标题。
 
-复刻参考视频 韩梦瑶分享的视频.mp4（2026-11-10 用户提供，16.7s 竖屏）的成品口径：
+编排取自参考视频 韩梦瑶分享的视频.mp4（2026-11-10 用户提供，16.7s 竖屏）；
+转场按用户 2026-11-11 定稿口径改为「剪映里的常见转场」：干净、规整、边缘锐利，
+不再使用模糊 / 甩镜 / 拖影类效果。
 
   * 每张图出场 1 次、按顺序播放、不循环；每镜 ~1.8s 慢推/慢拉 Ken Burns
     （居中取景，奇偶镜推拉交替，产品恒在画面中央不被裁切）；
-  * 镜与镜之间 = **逐个不同的快速转场**（参考片每个接点手法都不一样，绝不全片一个样）。
-    7 种手法全部从参考片逐帧拆解得到，按原片出现顺序轮换、相邻永不重复：
-      punch   放射缩放模糊 zoom punch          —— 原片 3.8s（平铺→镂空特写）
-      slices  竖向条带挤压擦除                —— 原片 5.6s
-      radial  强放射扇形模糊 + 旋转           —— 原片 7.6s
-      soft    柔和交叉淡化 + 轻推             —— 原片 9.6s
-      cut     干脆硬切 + 轻推                 —— 原片 11.6s
-      defocus 失焦模糊淡出到白再清晰         —— 原片 13.2s
-      hwhip   水平条纹运动模糊甩切           —— 原片 15.4s
-    每个接点 0.4s，节奏统一；循环到第二圈时按 variant 改变方向 / 条带数 / 幅度，
-    即使重复出现也不重样。可用 transitions= 显式指定序列覆盖默认轮换。
+  * 镜与镜之间 = **逐个不同的剪映风格转场**（0.4s），13 种手法按序列轮换、
+    相邻永不重复，分三组：
+      推入 / 滑入 / 擦除：push_lr 左右推入(左右切入) / push_tb 上下推入 /
+                           wipe_lr 左右擦除 / wipe_tb 上下擦除
+      基础类            ：dissolve 叠化 / flash 闪白 / black 黑场 /
+                           zoom 缩放推近(或缩小拉远) / rotate 旋转
+      特效类            ：glitch 故障抖动 / mosaic 马赛克 /
+                           mirror 镜像分屏 / flip_page 翻页
+    序列前 9 个即覆盖三组（10 张图成片可见 2 次左右切入）。
+    variant 决定推入方向 / 分屏方向 / 故障幅度，重复出现也不重样。
+    可用 transitions= 显式指定序列覆盖默认轮换。
   * 标题文字 = 参考片开头 "2027 New Collection · Laser cut invites" 的样式：
     **深色衬线字压白色标签条**（两行各一条白 bar）+ 首行两侧四角星装饰；
     开场 0.3s 淡入，约 5.5s（跨前两镜）淡出；字体随包 Cormorant SemiBold；
   * 原图直出，不加滤镜调色；仅出画面不含配乐（BGM 由 server 混 canon_in_d）。
 
-与 fastcut / decor_show / four_grid 完全独立：本模块只做「Ken Burns + 甩镜 + 标题」。
+与 fastcut / decor_show / four_grid 完全独立。
 
 接口
 ----
@@ -32,7 +34,7 @@ render_zoom_punch(images, out_path, ratio="9x16", fps=30,
   title      : 标题文字（"·" 或换行分行；空则回退默认句）
   show_title : False 则完全不叠标题
   font       : 字体键（core.fonts；None = 衬线正体 CG，即参考片观感）
-  transitions: 可选，转场序列（长度 >= n-1）；None = 按参考片顺序自动轮换
+  transitions: 可选，转场序列（长度 >= n-1）；None = 自动轮换
   返回 dict：{video, secs, images, ratio, transitions}
 """
 import os
@@ -56,18 +58,16 @@ SERIF = os.path.join(_FONT_DIR, "CormorantGaramond-SemiBold.ttf")
 # 节奏 / 风格常量（照参考片量得）
 # ---------------------------------------------------------------------------
 PER_SCENE = 1.8          # 每镜时长（s）
-TRANS = 0.4              # 甩镜转场时长（s）
+TRANS = 0.4              # 转场时长（s）
 ZB_NEAR, ZB_FAR = 1.00, 1.10     # Ken Burns 收紧范围（居中，不裁产品）
-WHIP_ZOOM_MAX = 0.80     # 转场中点最大放大倍数（1.0 -> 1.40，参考片的 punch 幅度）
-WHIP_BLUR_SPREAD = 0.12  # 径向模糊最大扩散（占缩放比例）
-WHIP_STEPS = 6           # 径向模糊采样层数
-WHIP_XFADE = 0.16        # 换镜点附近交叉淡化半宽（p 空间）
 
-# 参考片逐接点拆解出的 7 种转场，按原片出现顺序排列。
-# 相邻永远不同；超过 7 个接点后循环，但用 variant 改方向/条带数/幅度避免重样。
-TRANSITION_SEQUENCE = ("punch", "slices", "radial", "soft", "cut", "defocus", "hwhip")
-HWhip_STEPS = 6          # 水平/放射模糊采样层数
-SLICE_BANDS = 9          # 竖条带数量（variant 会改成 7 / 11）
+# 剪映风格转场序列：三组交错、左右切入优先、相邻永不重复。
+# 10 张图（9 个接点）即覆盖 推入/擦除 4 次、基础 3 次、特效 3 次。
+# 超过 13 个接点后循环，variant 改方向 / 分屏方向 / 故障幅度避免重样。
+TRANSITION_SEQUENCE = (
+    "push_lr", "dissolve", "glitch", "wipe_lr", "flash", "push_tb",
+    "mosaic", "zoom", "mirror", "rotate", "wipe_tb", "flip_page", "black",
+)
 
 # 标题（参考片原文）
 DEFAULT_TITLE = "2027 New Collection \u00b7 Laser cut invites"
@@ -124,60 +124,11 @@ def _kb_frame(im, z0, z1, p, W, H):
 
 
 # ---------------------------------------------------------------------------
-# 甩镜变焦转场
-# ---------------------------------------------------------------------------
-def _zoom_blur(im, amt, W, H):
-    """径向（缩放）动态模糊：amt∈[0,1]，1 = 最大扩散。中心不动。"""
-    if amt <= 0.02:
-        return im
-    h, w = im.shape[:2]
-    c = (w / 2.0, h / 2.0)
-    acc = np.zeros((h, w, 3), np.float32)
-    for i in range(WHIP_STEPS):
-        s = 1.0 + amt * WHIP_BLUR_SPREAD * (i / float(WHIP_STEPS - 1))
-        M = cv2.getRotationMatrix2D(c, 0.0, s)
-        acc += cv2.warpAffine(im, M, (w, h),
-                              flags=cv2.INTER_LINEAR,
-                              borderMode=cv2.BORDER_REFLECT).astype(np.float32)
-    return np.clip(acc / WHIP_STEPS, 0, 255).astype(np.uint8)
-
-
-def _whip_frame(im_out, im_in, p, W, H, variant=0):
-    """转场帧：p∈[0,1]。参考片 3.8s 的放射缩放 punch。
-
-    p<0.5：前镜由 1.0 放大到 1+WHIP_ZOOM_MAX/2，模糊渐强；
-    p>0.5：后镜由 1+WHIP_ZOOM_MAX/2 回落到 1.0，模糊渐弱；
-    中点 ±WHIP_XFADE/2 交叉淡化（两侧都处于重模糊，切换无痕）。
-    variant 改变 punch 幅度，让第二圈出现时不是同一个力度。
-    """
-    amp = WHIP_ZOOM_MAX + (0.0, -0.14, 0.12)[variant % 3]
-    zf = 1.0 + amp * 0.5
-    if p <= 0.5:
-        q = p / 0.5
-        z = 1.0 + (zf - 1.0) * (q * q)                    # ease-in 加速放大
-        base = _cover_crop(im_out, z, W, H)
-        frame = _zoom_blur(base, q, W, H)
-    else:
-        q = (p - 0.5) / 0.5
-        z = zf - (zf - 1.0) * (1.0 - (1.0 - q) * (1.0 - q))   # ease-out 回落
-        base = _cover_crop(im_in, z, W, H)
-        frame = _zoom_blur(base, 1.0 - q, W, H)
-    # 中点附近交叉淡化
-    lo, hi = 0.5 - WHIP_XFADE / 2.0, 0.5 + WHIP_XFADE / 2.0
-    if lo <= p <= hi:
-        a = (p - lo) / WHIP_XFADE                          # 0..1 = 前镜权重
-        fo = _cover_crop(im_out, zf, W, H)
-        fi = _cover_crop(im_in, zf, W, H)
-        fo = _zoom_blur(fo, 1.0, W, H)
-        fi = _zoom_blur(fi, 1.0, W, H)
-        frame = (fo.astype(np.float32) * a + fi.astype(np.float32) * (1.0 - a)).astype(np.uint8)
-    return frame
-
-
-# ---------------------------------------------------------------------------
-# 转场库（7 种，全部由参考片逐接点拆解得到）
-# 统一签名：(im_out, im_in, p, W, H, variant=0) -> BGR 帧
-# 相邻接点永不同款；循环第二圈靠 variant 改方向 / 条带数 / 幅度，避免重样。
+# 剪映风格转场库（干净、规整、硬边或整幅位移；无模糊甩镜）
+# 统一签名：(fout, fin, p, W, H, variant=0) -> BGR 帧 (H,W,3) uint8
+#   fout / fin 是「已 cover 到 W×H 的镜头边界帧」，由 render 预生成，
+#   因此转场内部不再触碰 4000px 源图 —— 可全分辨率合成、边缘锐利且极快。
+# 三组：推入/滑入/擦除、基础、特效；variant 决定方向 / 幅度，重复不重样。
 # ---------------------------------------------------------------------------
 def _blend(a, b, q):
     """q=0 全 a，q=1 全 b。"""
@@ -190,148 +141,226 @@ def _blend(a, b, q):
             b.astype(np.float32) * q).astype(np.uint8)
 
 
-def _radial_blur(im, amt, W, H, spin):
-    """放射扇形条纹模糊：多层「旋转 + 缩放」叠加 → 参考片 7.6s 的绿色风车。"""
-    if amt <= 0.02:
-        return im
-    c = (W / 2.0, H / 2.0)
-    acc = np.zeros((H, W, 3), np.float32)
-    for i in range(HWhip_STEPS):
-        u = i / float(HWhip_STEPS - 1) - 0.5
-        s = 1.0 + amt * WHIP_BLUR_SPREAD * u
-        ang = spin * amt * 9.0 * u
-        M = cv2.getRotationMatrix2D(c, ang, s)
-        acc += cv2.warpAffine(im, M, (W, H), flags=cv2.INTER_LINEAR,
-                              borderMode=cv2.BORDER_REFLECT).astype(np.float32)
-    return np.clip(acc / HWhip_STEPS, 0, 255).astype(np.uint8)
+def _solid(W, H, color):
+    """生成 H×W 纯色帧（W/H 可互换用于窄条）。"""
+    return np.full((H, W, 3), color, np.uint8)
 
 
-def _radial_frame(im_out, im_in, p, W, H, variant=0):
-    """radial：强放射扇形模糊 + 旋转（原片 7.6s）。"""
-    spin = 1.0 if variant % 2 == 0 else -1.0
-    zf = 1.0 + 0.34
-    if p <= 0.5:
-        q = p / 0.5
-        z = 1.0 + (zf - 1.0) * (q * q)
-        frame = _radial_blur(_cover_crop(im_out, z, W, H), q, W, H, spin)
-    else:
-        q = (p - 0.5) / 0.5
-        z = zf - (zf - 1.0) * (1.0 - (1.0 - q) ** 2)
-        frame = _radial_blur(_cover_crop(im_in, z, W, H), 1.0 - q, W, H, spin)
-    lo, hi = 0.5 - WHIP_XFADE / 2.0, 0.5 + WHIP_XFADE / 2.0
-    if lo <= p <= hi:
-        a = (p - lo) / WHIP_XFADE
-        fo = _radial_blur(_cover_crop(im_out, zf, W, H), 1.0, W, H, spin)
-        fi = _radial_blur(_cover_crop(im_in, zf, W, H), 1.0, W, H, spin)
-        frame = _blend(fi, fo, a)
-    return frame
+def _scale_center(frame, z, W, H):
+    """中心放大 z 倍后裁回 W×H。"""
+    if z <= 1.001:
+        return frame
+    nw, nh = int(round(W * z)), int(round(H * z))
+    big = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    x0, y0 = (nw - W) // 2, (nh - H) // 2
+    return big[y0:y0 + H, x0:x0 + W]
 
 
-def _slice_frame(im_out, im_in, p, W, H, variant=0):
-    """slices：竖向条带挤压擦除，交替上下错峰滑入（原片 5.6s）。"""
-    nb = (SLICE_BANDS, 7, 11, 8)[variant % 4]
-    sign = 1 if variant % 2 == 0 else -1
-    squeeze = 1.0 + 0.07 * math.sin(math.pi * p)
-    fo = _cover_crop(im_out, squeeze, W, H)
-    fi = _cover_crop(im_in, squeeze * 1.02, W, H)
-    out = np.empty_like(fo)
-    bw = int(math.ceil(W / float(nb)))
-    for b in range(nb):
-        x0, x1 = b * bw, min(W, (b + 1) * bw)
-        if x0 >= x1:
-            break
-        delay = 0.28 * ((b % 3) / 3.0)
-        q = cp.smoothstep((p - delay) / (1.0 - delay))
-        shift = int(round(sign * (1 if b % 2 == 0 else -1) * (1.0 - q) * H * 0.28))
-        tile = np.roll(fi[:, x0:x1], shift, axis=0)
-        out[:, x0:x1] = _blend(fo[:, x0:x1], tile, q)
+# --- 组 1：推入 / 滑入 / 擦除 -------------------------------------------------
+def _push_lr(fout, fin, p, W, H, variant=0):
+    """左右推入（左右切入）：整幅胶片平移，旧图被新图整幅推出画面。"""
+    off = max(0, min(W, int(round(W * cp.smoothstep(p)))))
+    out = np.empty((H, W, 3), np.uint8)
+    if variant % 2 == 0:                    # 新图从右向左推入
+        if off < W:
+            out[:, :W - off] = fout[:, off:]
+        if off > 0:
+            out[:, W - off:] = fin[:, :off]
+    else:                                   # 新图从左向右推入
+        if off < W:
+            out[:, off:] = fout[:, :W - off]
+        if off > 0:
+            out[:, :off] = fin[:, W - off:]
     return out
 
 
-def _hblur(im, amt, W, H, sign):
-    """水平方向运动模糊：多层水平平移叠加 → 参考片 15.4s 的横向拖影。"""
-    if amt <= 0.02:
-        return im
-    acc = np.zeros((H, W, 3), np.float32)
-    for i in range(HWhip_STEPS):
-        u = i / float(HWhip_STEPS - 1) - 0.5
-        dx = sign * amt * 0.16 * W * u
-        M = np.float32([[1, 0, dx], [0, 1, 0]])
-        acc += cv2.warpAffine(im, M, (W, H), flags=cv2.INTER_LINEAR,
-                              borderMode=cv2.BORDER_REFLECT).astype(np.float32)
-    return np.clip(acc / HWhip_STEPS, 0, 255).astype(np.uint8)
+def _push_tb(fout, fin, p, W, H, variant=0):
+    """上下推入：垂直方向整幅平移。"""
+    off = max(0, min(H, int(round(H * cp.smoothstep(p)))))
+    out = np.empty((H, W, 3), np.uint8)
+    if variant % 2 == 0:                    # 新图从下向上推入
+        if off < H:
+            out[:H - off] = fout[off:]
+        if off > 0:
+            out[H - off:] = fin[:off]
+    else:                                   # 新图从上向下推入
+        if off < H:
+            out[off:] = fout[:H - off]
+        if off > 0:
+            out[:off] = fin[H - off:]
+    return out
 
 
-def _hwhip_frame(im_out, im_in, p, W, H, variant=0):
-    """hwhip：水平条纹运动模糊甩切（原片 15.4s）。"""
-    sign = 1.0 if variant % 2 == 0 else -1.0
-    if p <= 0.5:
-        q = p / 0.5
-        frame = _hblur(_cover_crop(im_out, 1.0 + 0.10 * q, W, H), q, W, H, sign)
-    else:
-        q = (p - 0.5) / 0.5
-        frame = _hblur(_cover_crop(im_in, 1.10 - 0.10 * q, W, H), 1.0 - q, W, H, sign)
-    lo, hi = 0.5 - WHIP_XFADE / 2.0, 0.5 + WHIP_XFADE / 2.0
-    if lo <= p <= hi:
-        a = (p - lo) / WHIP_XFADE
-        fo = _hblur(_cover_crop(im_out, 1.10, W, H), 1.0, W, H, sign)
-        fi = _hblur(_cover_crop(im_in, 1.10, W, H), 1.0, W, H, sign)
-        frame = _blend(fi, fo, a)
-    return frame
+def _wipe_lr(fout, fin, p, W, H, variant=0):
+    """左右擦除：旧图静止，新图以硬边从左 / 右逐渐覆盖。"""
+    off = max(0, min(W, int(round(W * cp.smoothstep(p)))))
+    out = fout.copy()
+    if off:
+        if variant % 2 == 0:
+            out[:, :off] = fin[:, :off]
+        else:
+            out[:, W - off:] = fin[:, W - off:]
+    return out
 
 
-def _defocus_frame(im_out, im_in, p, W, H, variant=0):
-    """defocus：失焦模糊 → 泛白 → 重新清晰（原片 13.2s）。"""
-    white = np.full((H, W, 3), (240, 246, 250) if variant % 2 else (252, 252, 252), np.uint8)
-    tri = math.sin(math.pi * p)
-    k = int(2 + 14 * tri)
-    if k % 2 == 0:
-        k += 1
-    if p <= 0.5:
-        base = _cover_crop(im_out, 1.0 + 0.04 * (p / 0.5), W, H)
-    else:
-        base = _cover_crop(im_in, 1.06 - 0.06 * ((p - 0.5) / 0.5), W, H)
-    blurred = cv2.GaussianBlur(base, (k, k), 0) if k >= 3 else base
-    # 原片是「失焦到泛白、仍隐约可见轮廓」，不是纯白闪，白混合封顶 0.55
-    return _blend(_blend(base, blurred, tri * 0.9), white, 0.55 * tri)
+def _wipe_tb(fout, fin, p, W, H, variant=0):
+    """上下擦除：旧图静止，新图以硬边从上 / 下逐渐覆盖。"""
+    off = max(0, min(H, int(round(H * cp.smoothstep(p)))))
+    out = fout.copy()
+    if off:
+        if variant % 2 == 0:
+            out[:off] = fin[:off]
+        else:
+            out[H - off:] = fin[H - off:]
+    return out
 
 
-def _soft_frame(im_out, im_in, p, W, H, variant=0):
-    """soft：柔和交叉淡化 + 轻推，中点轻微提亮（原片 9.6s）。"""
-    q = cp.smoothstep(p)
-    amp = 0.05 + 0.02 * (variant % 2)
-    fo = _cover_crop(im_out, 1.0 + amp * q, W, H)
-    fi = _cover_crop(im_in, 1.0 + amp * (1.0 - q), W, H)
-    frame = _blend(fo, fi, q)
-    lift = 0.16 * math.sin(math.pi * p)
+# --- 组 2：基础类 -----------------------------------------------------------
+def _dissolve(fout, fin, p, W, H, variant=0):
+    """叠化溶解：平滑交叉淡化，中点轻微提亮。"""
+    fr = _blend(fout, fin, cp.smoothstep(p))
+    lift = 0.10 * math.sin(math.pi * p)
     if lift > 0.002:
-        frame = _blend(frame, np.full((H, W, 3), 255, np.uint8), lift)
-    return frame
+        fr = _blend(fr, _solid(W, H, 255), lift)
+    return fr
 
 
-def _cut_frame(im_out, im_in, p, W, H, variant=0):
-    """cut：干脆硬切 + 轻推，无过渡帧（原片 11.6s）。"""
-    push = 0.05 + 0.02 * (variant % 3)
-    if p < 0.48:
-        return _cover_crop(im_out, 1.0 + push * (p / 0.48), W, H)
-    q = (p - 0.48) / 0.52
-    return _cover_crop(im_in, 1.0 + push * (1.0 - q), W, H)
+def _flash(fout, fin, p, W, H, variant=0):
+    """闪白：中点全白瞬间换镜。"""
+    tri = math.sin(math.pi * p)
+    base = fout if p < 0.5 else fin
+    return _blend(base, _solid(W, H, 255), 0.96 * tri)
+
+
+def _black(fout, fin, p, W, H, variant=0):
+    """黑场：淡出到黑再淡入。"""
+    tri = math.sin(math.pi * p)
+    base = fout if p < 0.5 else fin
+    return _blend(base, _solid(W, H, 0), 0.97 * tri)
+
+
+def _zoom(fout, fin, p, W, H, variant=0):
+    """缩放：偶数 variant 推近冲出，奇数 variant 缩小拉远。"""
+    if variant % 2 == 0:
+        zf = 1.38
+        if p <= 0.5:
+            q = p / 0.5
+            z, src = 1.0 + (zf - 1.0) * (q * q), fout
+        else:
+            q = (p - 0.5) / 0.5
+            z = zf - (zf - 1.0) * (1.0 - (1.0 - q) ** 2)
+            src = fin
+        return _scale_center(src, z, W, H)
+    out = fin.copy()
+    s = 1.0 - cp.smoothstep(p)
+    if s > 0.02:
+        sw, sh = max(2, int(W * s)), max(2, int(H * s))
+        small = cv2.resize(fout, (sw, sh), interpolation=cv2.INTER_LINEAR)
+        x0, y0 = (W - sw) // 2, (H - sh) // 2
+        out[y0:y0 + sh, x0:x0 + sw] = small
+    return out
+
+
+def _rotate(fout, fin, p, W, H, variant=0):
+    """旋转：整幅边旋转边放大，中点放大最多时换镜。"""
+    spin = 1.0 if variant % 2 == 0 else -1.0
+    ang = spin * 24.0 * p
+    s = 1.0 + 0.26 * math.sin(math.pi * p)
+    src = fout if p < 0.5 else fin
+    M = cv2.getRotationMatrix2D((W / 2.0, H / 2.0), ang, s)
+    return cv2.warpAffine(src, M, (W, H), flags=cv2.INTER_LINEAR,
+                          borderMode=cv2.BORDER_REFLECT)
+
+
+# --- 组 3：特效类 -----------------------------------------------------------
+def _glitch(fout, fin, p, W, H, variant=0):
+    """故障抖动：RGB 通道错位 + 横向条带位移 + 少量色块，中点最强。"""
+    tri = math.sin(math.pi * p)
+    base = _blend(fout, fin, cp.smoothstep(p))
+    g = base.copy()
+    sh = int(W * 0.035 * tri) * (1 if variant % 2 == 0 else -1)
+    if sh:
+        g[:, :, 0] = np.roll(base[:, :, 0], sh, axis=1)
+        g[:, :, 2] = np.roll(base[:, :, 2], -sh, axis=1)
+    nb = 6 + 2 * (variant % 3)
+    bh = max(1, H // nb)
+    for b in range(nb):
+        if (b + variant) % 3 == 0:
+            d = int(W * 0.06 * tri * (1 if b % 2 == 0 else -1))
+            y0, y1 = b * bh, min(H, (b + 1) * bh)
+            if d:
+                g[y0:y1] = np.roll(g[y0:y1], d, axis=1)
+    if tri > 0.55 and W > 40:
+        bw = int(W * 0.22 * tri)
+        y0 = int(H * (0.28 + 0.12 * (variant % 3)))
+        y1 = min(H, y0 + max(2, int(H * 0.02)))
+        if y1 > y0 and bw > 0:
+            g[y0:y1, :bw] = (40, 40, 235) if variant % 2 == 0 else (235, 90, 40)
+    return g
+
+
+def _mosaic(fout, fin, p, W, H, variant=0):
+    """马赛克：中点最粗、两端清晰。"""
+    tri = math.sin(math.pi * p)
+    base = _blend(fout, fin, cp.smoothstep(p))
+    block = max(2, int(2 + 24 * tri))
+    sw, sh = max(2, W // block), max(2, H // block)
+    small = cv2.resize(base, (sw, sh), interpolation=cv2.INTER_LINEAR)
+    big = cv2.resize(small, (W, H), interpolation=cv2.INTER_NEAREST)
+    return _blend(base, big, tri)
+
+
+def _mirror(fout, fin, p, W, H, variant=0):
+    """镜像 / 分屏切换：左右两半分别自上下反向滑入，中点合拢。"""
+    e = cp.smoothstep(p)
+    half = W // 2
+    out = fout.copy()
+    shift = int(H * 0.42 * (1.0 - e))
+    s = 1 if variant % 2 == 0 else -1
+    left = np.roll(fin[:, :half], s * shift, axis=0)
+    right = np.roll(fin[:, half:], -s * shift, axis=0)
+    out[:, :half] = _blend(fout[:, :half], left, e)
+    out[:, half:] = _blend(fout[:, half:], right, e)
+    return out
+
+
+def _flip_page(fout, fin, p, W, H, variant=0):
+    """翻页：旧画面沿竖轴压缩翻走（背面渐暗），逐渐露出新画面。"""
+    e = cp.smoothstep(p)
+    nw = max(1, int(round(W * (1.0 - e))))
+    strip = cv2.resize(fout, (nw, H), interpolation=cv2.INTER_LINEAR)
+    strip = _blend(strip, _solid(nw, H, 0), e * 0.40)
+    out = fin.copy()
+    if variant % 2 == 0:
+        out[:, :nw] = strip
+    else:
+        out[:, W - nw:] = strip
+    if 1 < nw < W:
+        x = max(0, min(W - 2, nw if variant % 2 == 0 else W - nw))
+        out[:, x:x + 2] = _blend(out[:, x:x + 2], _solid(2, H, 255), 0.5)
+    return out
 
 
 _TRANSITIONS = {
-    "punch": _whip_frame,
-    "slices": _slice_frame,
-    "radial": _radial_frame,
-    "soft": _soft_frame,
-    "cut": _cut_frame,
-    "defocus": _defocus_frame,
-    "hwhip": _hwhip_frame,
+    "push_lr": _push_lr,
+    "push_tb": _push_tb,
+    "wipe_lr": _wipe_lr,
+    "wipe_tb": _wipe_tb,
+    "dissolve": _dissolve,
+    "flash": _flash,
+    "black": _black,
+    "zoom": _zoom,
+    "rotate": _rotate,
+    "glitch": _glitch,
+    "mosaic": _mosaic,
+    "mirror": _mirror,
+    "flip_page": _flip_page,
 }
 VALID_TRANSITIONS = tuple(_TRANSITIONS.keys())
 
 
 def resolve_transitions(n, seq=None):
-    """返回长度 n-1 的转场名列表；None = 按参考片顺序轮换，相邻永不重复。"""
+    """返回长度 n-1 的转场名列表；None = 按剪映风格序列轮换，相邻永不重复。"""
     count = max(0, n - 1)
     if seq:
         out = [str(x).lower() for x in seq if str(x).lower() in _TRANSITIONS]
@@ -494,16 +523,16 @@ def render_zoom_punch(images, out_path, ratio="9x16", fps=30,
     for i in range(n):
         dirs.append((ZB_NEAR, ZB_FAR) if i % 2 == 0 else (ZB_FAR, ZB_NEAR))
 
-    # 每个接点的转场手法：按参考片顺序轮换，相邻永不重复
+    # 预生成每镜「结束态 / 起始态」全尺寸帧：转场只做几何合成，
+    # 不再触碰 4000px 源图 → 可全分辨率输出，推入/擦除边缘保持锐利。
+    end_frames = [_cover_crop(photos[i], dirs[i][1], W, H) for i in range(n)]
+    start_frames = [_cover_crop(photos[i], dirs[i][0], W, H) for i in range(n)]
+
+    # 每个接点的转场手法：按剪映风格序列轮换，相邻永不重复
     trans_kinds = resolve_transitions(n, transitions)
 
     if progress:
         progress(14, 100, "Rendering")
-
-    # 转场帧本身是高速模糊 / 运动态：除硬切外一律半分辨率合成再放大。
-    # 源图常为 4000px 级，1080x1920 上多层 warpAffine 极慢；半分辨率成本约 1/4，
-    # 且放大后与原片那种「甩镜拖影」观感一致（实测 3.7x 提速、无可见画质损失）。
-    Wt, Ht = W // 2, H // 2
 
     cmd = [cp.FFMPEG, "-y", "-hide_banner",
            "-f", "rawvideo", "-pix_fmt", "bgr24",
@@ -532,15 +561,11 @@ def render_zoom_punch(images, out_path, ratio="9x16", fps=30,
                 frame_no += 1
             if si < n - 1:
                 fn = _TRANSITIONS[trans_kinds[si]]
-                variant = si // len(TRANSITION_SEQUENCE)
-                half = trans_kinds[si] != "cut"
+                variant = si
+                fo, fi = end_frames[si], start_frames[si + 1]
                 for k in range(trans_f):
                     p = (k + 0.5) / trans_f
-                    if half:
-                        small = fn(photos[si], photos[si + 1], p, Wt, Ht, variant)
-                        frame = cv2.resize(small, (W, H), interpolation=cv2.INTER_LINEAR)
-                    else:
-                        frame = fn(photos[si], photos[si + 1], p, W, H, variant)
+                    frame = fn(fo, fi, p, W, H, variant)
                     if ttl_a is not None:
                         t = frame_no / float(fps)
                         a = _title_alpha(t, total_secs, n)
