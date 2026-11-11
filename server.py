@@ -3871,7 +3871,8 @@ class Handler(SimpleHTTPRequestHandler):
                   "·" 或换行分两行) /
                 show_title false 则完全不叠标题(默认 false＝opt-in) /
                 project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
-                silent true 则跳过配乐（默认配 canon_in_d 优雅古典向，与其他模版不重复） /
+                silent true 则跳过配乐（默认配 love_story_60s 用户指定 60s 版，
+                  2026-11-11 起；未登记 manifest 也能用——_bgm_pick 只按文件取） /
                 transitions 转场名数组(可选；缺省按剪映风格序列自动轮换，相邻永不重复；
                   可选值 push_lr/push_tb/wipe_lr/wipe_tb/dissolve/flash/black/
                   zoom/rotate/glitch/mosaic/mirror/flip_page，非法值自动忽略) /
@@ -3922,10 +3923,11 @@ class Handler(SimpleHTTPRequestHandler):
                                                ken_burns=ken_burns)
                     secs = res["secs"]
                     _bf = None
-                    # BGM：canon_in_d（优雅古典向，未被他模版占用）；失败不影响画面交付。
+                    # BGM：love_story_60s（用户 2026-11-11 指定 60s 版，替换 canon_in_d）；
+                    # 失败不影响画面交付。
                     if not body.get("silent"):
                         try:
-                            _bf = _bgm_pick(body, "canon_in_d.mp3")
+                            _bf = _bgm_pick(body, "love_story_60s.mp3")
                             if os.path.isfile(_bf):
                                 _mix = out + ".mix.mp4"
                                 job_progress(jid, 92, 100, "Adding music")

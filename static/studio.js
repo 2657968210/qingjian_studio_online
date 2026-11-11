@@ -1233,10 +1233,22 @@ async function uploadBgm(file) {
     BGM_LOADED = true;
     if (j.name) _lastUploaded = j.name;
     const sel = $("#bgmSel");
-    if (sel) sel.value = "__upload__";   // stay on the fixed "Upload My Own Music" option
+    if (sel) {
+      sel.value = "__upload__";   // stay on the fixed "Upload My Own Music" option
+      // 2026-11-11：把上传成功的曲名写进选项文字，客户能一眼看到"当前会用到哪首"，
+      // 不再只是停在一句静态的 Upload My Own Music 上。
+      const opt = sel.querySelector('option[value="__upload__"]');
+      if (opt) {
+        const lb = String(j.label || file.name || "");
+        opt.textContent = "My Music: " + (lb.length > 26 ? lb.slice(0, 26) + "\u2026" : lb);
+      }
+    }
     show("Added — “" + (j.label || file.name) + "” is selected for this video.");
   } catch (e) {
-    show("Upload failed: " + (e.message || "unknown error"));
+    show("Upload failed: " + (e.message || "unknown error"), true);
+    // 上传失败时不能让下拉停在 __upload__（否则生成会静默回退模版默认曲）。
+    const sel = $("#bgmSel");
+    if (sel && !_lastUploaded) sel.value = "";
   }
 }
 
@@ -1273,6 +1285,14 @@ async function generate() {
       if (i === 0) m.el.scrollIntoView({ behavior: "smooth", block: "center" });
     });
     toast("请先填写必填文字：" + req.missing.map((m) => REQ_LABEL[m.id] || m.id).join("、"), 4600);
+    return;
+  }
+  // 2026-11-11 用户：上传 BGM 后成片仍是模版默认曲 → 根因之一是选了 "Upload My Own
+  // Music" 但实际没有成功上传的曲目（上传失败/取消了文件对话框），旧逻辑静默回退
+  // 默认曲，客户完全无感知。现在直接拦下并给出明确指引，绝不静默换曲。
+  const _bv = ($("#bgmSel") || {}).value;
+  if (_bv === "__upload__" && !_lastUploaded) {
+    toast("Your music is not uploaded yet — finish the upload in step 4, or pick \u201CUse Template Music\u201D / \u201CNo Music\u201D.", 5200);
     return;
   }
   ST.busy = true;
@@ -1821,7 +1841,18 @@ function bind() {
   // step 4 · choosing "Upload My Own Music" in the dropdown opens the file picker
   const bgmSelEl = $("#bgmSel");
   if (bgmSelEl) bgmSelEl.addEventListener("change", () => {
-    if (bgmSelEl.value === "__upload__" && bgmFile) bgmFile.click();
+    if (bgmSelEl.value === "__upload__" && bgmFile) {
+      bgmFile.click();
+      // 2026-11-11：客户可能取消文件对话框——此时 _lastUploaded 为空，若不提示，
+      // 生成时会静默回退模版默认曲（用户反馈的"上传了却没换歌"主因之一）。
+      if (!_lastUploaded) {
+        const hint = $("#bgmHint");
+        if (hint) {
+          hint.textContent = "Pick a music file in the dialog (or press \u201CUpload Music\u201D). Generation is blocked until a track is actually uploaded.";
+          hint.hidden = false;
+        }
+      }
+    }
   });
   // step 4 · branding logo upload (2026-10-29)
   const logoFile = $("#logoFile");
