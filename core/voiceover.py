@@ -40,7 +40,7 @@ FF = imageio_ffmpeg.get_ffmpeg_exe()
 DEFAULT_VOICE = "en-US-AriaNeural"
 MAX_ATEMPO = 1.12          # 红线：超过听起来不自然
 SUB_SIZE = 48              # 口播字幕字号（按 1920 高）
-CAP_SIZE = 60              # captions 屏幕文字字号（用户 2026-10-20：要比字幕大一点）
+CAP_SIZE = 72              # captions 屏幕文字字号（2026-11-11：白底请柬上要看得清）
 SUB_MARGIN_V = 150         # 底部对齐时距底（pos="bottom" 才用）
 SUB_MARGIN_LR = 80         # 字幕左右安全边
 SUB_POS_UPPER = 0.34       # 中上方：文字块中心 = 34% 屏高（captions 行专用）
@@ -285,6 +285,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Align, MarginL, MarginR, MarginV, Encoding
 Style: En,%(fontname)s,%(fsize)d,&H00FFFFFF,&H000019FF,&H00101010,&H96000000,%(fbold)d,%(fitalic)d,0,0,100,100,0,0,1,2.2,1.0,2,%(ml)d,%(mr)d,%(mv)d,1
+Style: Cap,%(fontname)s,%(fsize)d,&H00FFFFFF,&H000019FF,&H00202020,&H50000000,%(fbold)d,%(fitalic)d,0,0,100,100,0,0,3,3.0,0.0,2,%(ml)d,%(mr)d,%(mv)d,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -292,7 +293,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def write_ass(path, cues, w=1080, h=1920, pos="bottom", size=None,
-              fontname="Arial", bold=-1, italic=0):
+              fontname="Arial", bold=-1, italic=0, style="En"):
+    """style="Cap" 只给 captions 行用：半透明深色底板 + 白字，浅色请柬图上也看得清；
+    口播字幕仍用 En（描边+阴影），观感不变。"""
     # ★ PlayResX/PlayResY 必须写：缺省时 libass 按 384x288 解析，48px 字号会被
     #   放大 6 倍多且 MarginL 按比例左偏——字幕巨大、左侧被裁（本次实锤）。
     # 位置（用户 2026-10-20 定稿）：
@@ -316,7 +319,8 @@ def write_ass(path, cues, w=1080, h=1920, pos="bottom", size=None,
     else:
         tag = "{\\an2}"
     for c, s, e in cues:
-        lines.append("Dialogue: 0,%s,%s,En,,0,0,0,,%s%s\n" % (ass_time(s), ass_time(e), tag, ass_escape(c)))
+        lines.append("Dialogue: 0,%s,%s,%s,,0,0,0,,%s%s\n" %
+                     (ass_time(s), ass_time(e), style, tag, ass_escape(c)))
     with open(path, "w", encoding="utf-8") as f:
         f.write("".join(lines))
     return path
@@ -725,7 +729,9 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
     from core import fonts as _fonts
     line = str(line or "").strip()
     if not line:
-        raise ValueError("empty caption line")
+        # 2026-11-11：客户留空 / AI 起稿失败时不能静默无字（旧版抛异常被端点
+        # except BaseException 吞掉 → 用户看到「勾选了 captions 却没有文字」）。
+        line = "Hand-finished wedding invitations"
     work_dir = os.path.join(os.path.dirname(os.path.abspath(out_path)), "_cap_work")
     os.makedirs(work_dir, exist_ok=True)
     fps, vdur, (w, h) = probe(video_in)
@@ -734,7 +740,8 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
     ass_path = os.path.join(work_dir, "cap.ass")
     fb, fi = _fonts.ass_flags(font)
     write_ass(ass_path, [(line, 0.0, vdur)], w, h, pos=sub_pos, size=CAP_SIZE,
-              fontname=_fonts.ass_family(font), bold=fb, italic=fi)
+              fontname=_fonts.ass_family(font), bold=fb, italic=fi,
+              style="Cap")
     esc = ass_path.replace("\\", "/").replace(":", "\\:")
     fdir = _fonts.FONT_DIR.replace("\\", "/").replace(":", "\\:")
     _run([FF, "-y", "-i", video_in,

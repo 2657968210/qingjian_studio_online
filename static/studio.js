@@ -535,7 +535,7 @@ function updateGenBtn() {
   //   decor-show (Decor)         → 3  (server.py /api/decor-show: len(srcs) < 3)
   //   collage-palette (Wedding Look) → 3  (server.py /api/collage-palette: len(srcs) < 3)
   //   bw_reveal (B&W->Color Reveal) → 2  (server.py /api/bw-reveal: len(srcs) < 2, cap 12)
-  //   zoom_punch (Whip-Zoom Showcase) → 3 (server.py /api/zoom-punch: len(srcs) < 3, cap 99)
+  //   zoom_punch (Dynamic Collection Showcase) → 3 (server.py /api/zoom-punch: len(srcs) < 3, cap 99)
   const min = zp ? 3 : multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 5 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : bw ? 2 : 1;
   const recog = recogPending();
   $("#btnToStep3").disabled = n === 0 || ST.busy || n < min || recog;
@@ -919,7 +919,7 @@ function renderStep4() {
   if (pipe === "collage_palette") refreshPalettePanel(false);
   const fl = $("#capFieldsLine"); if (fl) fl.hidden = !(pipe === "card_pan" || pipe === "scroll_gallery");
   const ff = $("#capFieldsFast"); if (ff) ff.hidden = pipe !== "fast_cut";
-  // Whip-Zoom Showcase: collection title field (dark serif on white bars design)
+  // Dynamic Collection Showcase: collection title field (dark serif on white bars design)
   const fz = $("#capFieldsZoom"); if (fz) fz.hidden = pipe !== "zoom_punch";
   const fc2 = $("#capFieldsCin"); if (fc2) fc2.hidden = !cin;
   const ft = $("#capFieldsThree"); if (ft) ft.hidden = !three;
@@ -1299,11 +1299,12 @@ async function generate() {
       };
       if (t.plan) body.plan = t.plan;
       if (t.target_secs) body.target_secs = t.target_secs;
-      // step 4 toggles: this template has no native text → captions = burned line
-      // (skipped when voiceover is on: its subtitles already are on-screen text).
+      // step 4 toggles: this template has no native text → captions = burned line.
+      // 2026-11-11: caption stays on even when voiceover is on — the caption sits
+      // upper-middle and voiceover subtitles sit lower, so they never overlap.
       const vo = voPayload();
       if (vo) body.voiceover = vo;
-      if (capOn() && !vo) {
+      if (capOn()) {
         body.captions = { on: true, text: (($("#capLine") && $("#capLine").value.trim()) || ""),
                           font: capFontKey() };
       }
@@ -1345,7 +1346,7 @@ async function generate() {
       };
       const vo = voPayload();
       if (vo) body.voiceover = vo;
-      if (capOn() && !vo) {
+      if (capOn()) {
         body.captions = { on: true, text: (($("#capLine") && $("#capLine").value.trim()) || ""),
                           font: capFontKey() };
       }
@@ -1397,7 +1398,7 @@ async function generate() {
       applyBgm(body);
       ({ job } = await api("/api/fast-cut", body));
     } else if (t.pipeline === "zoom_punch") {
-      // Whip-Zoom Showcase: photos stay perfectly STILL (no camera move,
+      // Dynamic Collection Showcase: photos stay perfectly STILL (no camera move,
       // 2026-11-11 user decision) — only the CapCut-style transitions move;
       // opening title (dark serif on white bars) is optional (Add Captions
       // toggle in step 4); blank field → server default reference text.
@@ -1498,8 +1499,8 @@ async function generate() {
     } else if (t.pipeline === "decor_show") {
       // Decor Showcase: 3-12 photos -> per-photo full-frame camera move.
       // 2026-11-03: optional on-screen caption line (burned upper-middle).
-      // 2026-11-09: voiceover now optional (step-4 toggle), same as other templates;
-      // when voiceover is on its subtitle is the on-screen text, so skip the caption line.
+      // 2026-11-11: voiceover no longer suppresses the caption line — caption is
+      // upper-middle, voiceover subtitles are lower, so both can show together.
       const body = {
         project: ST.project.id,
         srcs: srcs,
@@ -1508,7 +1509,7 @@ async function generate() {
       };
       const vo = voPayload();
       if (vo) body.voiceover = vo;
-      if (capOn() && !vo) {
+      if (capOn()) {
         body.captions = { on: true, text: (($("#decorCap") && $("#decorCap").value.trim()) || ""),
                           font: capFontKey() };
       }
@@ -1621,7 +1622,7 @@ function estimatedSeconds() {
   if (!t || !n) return null;
   const pipe = t.pipeline;
   let s = null;
-  // Whip-Zoom Showcase: n shots x 1.8s + (n-1) whip transitions x 0.4s
+  // Dynamic Collection Showcase: n shots x 1.8s + (n-1) whip transitions x 0.4s
   if (pipe === "zoom_punch") s = 1.8 * n + 0.4 * (n - 1);
   else if (pipe === "cinematic_cut") s = 4.8 + 0.56 * n;
   else if (pipe === "three_screen") s = (3 * n + 9) * 0.5923;

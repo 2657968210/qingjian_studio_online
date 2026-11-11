@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Whip-Zoom Showcase（zoom_punch）—— N 张产品图 → 剪映风格规整转场 + 白条深色衬线标题。
+"""Dynamic Collection Showcase（zoom_punch）—— N 张产品图 → 剪映风格规整转场 + 白条深色衬线标题。
 
 编排取自参考视频 韩梦瑶分享的视频.mp4（2026-11-10 用户提供，16.7s 竖屏）；
 转场按用户 2026-11-11 定稿口径改为「剪映里的常见转场」：干净、规整、边缘锐利，
@@ -21,7 +21,9 @@
     variant 决定推入方向 / 分屏方向 / 故障幅度，重复出现也不重样。
     可用 transitions= 显式指定序列覆盖默认轮换。
   * 标题文字 = 参考片开头 "2027 New Collection · Laser cut invites" 的样式：
-    **深色衬线字压白色标签条**（两行各一条白 bar）+ 首行两侧四角星装饰；
+    **深色衬线字压白色标签条**（每行一条白 bar）+ 首行两侧四角星装饰；
+    2026-11-11 定稿：每行白条宽度上限 70% 屏宽，**放不下自动折行**（最多 4 行），
+    不再靠无限缩小字号塞进一行（长标题仍清晰可读）；显式换行符 / "·" / " - " 强制分段；
     开场 0.3s 淡入，约 5.5s（跨前两镜）淡出；字体随包 Cormorant SemiBold；
   * 原图直出，不加滤镜调色；仅出画面不含配乐（BGM 由 server 混 canon_in_d）。
 
@@ -75,7 +77,10 @@ TRANSITION_SEQUENCE = (
 
 # 标题（参考片原文）
 DEFAULT_TITLE = "2027 New Collection \u00b7 Laser cut invites"
-TITLE_W_RATIO = 0.70     # 每行字宽上限（占屏宽）
+TITLE_W_RATIO = 0.70     # 每行白条宽度上限（占屏宽）；超出自动折行，不再缩成小字
+TITLE_MIN_SIZE_RATIO = 0.040  # 行数仍超上限时允许的最小字号（占屏高）
+TITLE_MAX_LINES = 4      # 标题最多行数（长句不盖满画面）
+TITLE_MAX_SEGMENTS = 4   # 显式分隔符（换行/·/ - ）最多段数
 TITLE_BLOCK_CY = 0.105   # 标题块中心（占屏高；参考片两行块 ~7%-14%）
 TITLE_BAR_PADX = 0.030   # 白条水平内边距（占屏宽）
 TITLE_BAR_PADY = 0.009   # 白条垂直内边距（占屏高；参考片白条扁、贴字）
@@ -392,45 +397,119 @@ def _star(draw, cx, cy, r, fill):
 
 
 def _split_title(text):
-    """标题分行：优先手动换行，其次 "·" 分两行，否则单行。"""
+    """标题分段：手动换行 / "·" / " - " 强制分段；每段再由 _wrap_text 按宽度折行。
+    2026-11-11：不再为了塞进一行而无限缩小字号 —— 宽度固定，放不下就换行。"""
     t = (text or "").strip()
     if not t:
         t = DEFAULT_TITLE
     if "\n" in t:
-        return [s.strip() for s in t.split("\n") if s.strip()][:2]
-    if "\u00b7" in t:
-        a, b = t.split("\u00b7", 1)
-        return [a.strip(), b.strip()]
-    if " - " in t:
-        a, b = t.split(" - ", 1)
-        return [a.strip(), b.strip()]
-    return [t]
+        parts = [s.strip() for s in t.split("\n") if s.strip()]
+    elif "\u00b7" in t:
+        parts = [s.strip() for s in t.split("\u00b7") if s.strip()]
+    elif " - " in t:
+        parts = [s.strip() for s in t.split(" - ") if s.strip()]
+    else:
+        parts = [t]
+    return parts[:TITLE_MAX_SEGMENTS]
+
+
+def _wrap_text(text, font, max_w, draw):
+    """按最大宽度折行：英文按空格成词，中文 / 超长词按字符切，行宽绝不超过 max_w。"""
+    def width(s):
+        bb = draw.textbbox((0, 0), s, font=font)
+        return bb[2] - bb[0]
+
+    # 纯中文（无空格）：逐字折行，词间不加空格
+    if any("\u4e00" <= ch <= "\u9fff" for ch in text) and " " not in text:
+        lines, cur = [], ""
+        for ch in text:
+            if cur and width(cur + ch) > max_w:
+                lines.append(cur)
+                cur = ch
+            else:
+                cur += ch
+        if cur:
+            lines.append(cur)
+        return lines or [""]
+
+    tokens = []
+    for wd in text.split():
+        if width(wd) <= max_w:
+            tokens.append(wd)
+        else:
+            cur = ""
+            for ch in wd:
+                if cur and width(cur + ch) > max_w:
+                    tokens.append(cur)
+                    cur = ch
+                else:
+                    cur += ch
+            if cur:
+                tokens.append(cur)
+    lines, cur = [], ""
+    for tk in tokens:
+        trial = (cur + " " + tk) if cur else tk
+        if width(trial) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = tk
+    if cur:
+        lines.append(cur)
+    return lines or [""]
 
 
 def _build_title_overlay(text, W, H, font_path=None):
     """返回 (rgb, base_alpha) —— BGR 空间 overlay 与基础 alpha 图（含白条+字+星）。"""
     fpath = font_path or SERIF
-    lines = _split_title(text)
+    # CJK 标题：随包衬线字体无中文字形（会渲染成方块）→ 回退系统自带中文字体。
+    if any("\u4e00" <= ch <= "\u9fff" for ch in (text or "")):
+        for cand in (r"C:\Windows\Fonts\msyh.ttc",
+                     r"C:\Windows\Fonts\simhei.ttf",
+                     "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+                     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"):
+            if os.path.isfile(cand):
+                fpath = cand
+                break
+    segments = _split_title(text)
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
 
-    # 每行独立按宽度上限取字号（参考片两行字号一致，取两行最小值统一）
-    size = int(H * 0.052)
-    fonts = []
-    for ln in lines:
-        s = size
-        while s > 10:
-            f = ImageFont.truetype(fpath, s)
-            bb = d.textbbox((0, 0), ln, font=f)
-            if bb[2] - bb[0] <= W * TITLE_W_RATIO:
+    # 宽度口径（2026-11-11）：白条宽度 ≤ W*TITLE_W_RATIO，字区再扣左右内边距；
+    # 按起始字号折行，行数超上限才适度缩字号（有下限），绝不缩成看不清的小字。
+    pad_x = int(W * TITLE_BAR_PADX)
+    max_w = max(80, int(W * TITLE_W_RATIO) - 2 * pad_x)
+    size0 = int(H * 0.052)
+    size_min = max(12, int(H * TITLE_MIN_SIZE_RATIO))
+
+    def _seg_w(seg, font):
+        bb = d.textbbox((0, 0), seg, font=font)
+        return bb[2] - bb[0]
+
+    # ① 先在不低于 size_min 的范围内适度缩字号，让每个显式分段各自单行
+    #    （保住参考片两行标题的观感，字仍够大）；
+    # ② 到下限仍放不下 → 才按宽度自动折行，行数最多 TITLE_MAX_LINES。
+    size, lines = size0, None
+    s = size0
+    while s >= size_min:
+        f = ImageFont.truetype(fpath, s)
+        if all(_seg_w(seg, f) <= max_w for seg in segments):
+            size, lines = s, list(segments)
+            break
+        s -= 2
+    if lines is None:
+        size = size_min
+        while True:
+            f = ImageFont.truetype(fpath, size)
+            lines = []
+            for seg in segments:
+                lines.extend(_wrap_text(seg, f, max_w, d))
+            if len(lines) <= TITLE_MAX_LINES or size <= max(12, int(H * 0.030)):
                 break
-            s -= 2
-        fonts.append((ln, ImageFont.truetype(fpath, s), d.textbbox((0, 0), ln, font=f)))
-    size = min(f.size for _ln, f, _bb in fonts) if fonts else size
-    fonts = []
-    for ln in lines:
-        f = ImageFont.truetype(fpath, size)
-        fonts.append((ln, f, d.textbbox((0, 0), ln, font=f)))
+            size -= 2
+        lines = lines[:TITLE_MAX_LINES]
+    f = ImageFont.truetype(fpath, size)
+    fonts = [(ln, f, d.textbbox((0, 0), ln, font=f)) for ln in lines]
 
     pad_x = int(W * TITLE_BAR_PADX)
     pad_y = int(H * TITLE_BAR_PADY)
@@ -444,7 +523,8 @@ def _build_title_overlay(text, W, H, font_path=None):
         bars.append((ln, f, bb, bw, bh))
         total_h += bh
     total_h += gap * (len(bars) - 1)
-    y = int(H * TITLE_BLOCK_CY) - total_h // 2
+    # 行数变多时白条块整体下移，但不越过画面顶部（折行后标题可能占 3~4 行）
+    y = max(int(H * 0.015), int(H * TITLE_BLOCK_CY) - total_h // 2)
     dark = TITLE_COLOR + (255,)
     white = (255, 255, 255, int(255 * TITLE_ALPHA_MAX))
     l1_box = None
@@ -502,7 +582,7 @@ def render_zoom_punch(images, out_path, ratio="9x16", fps=30,
     from core import fonts as _fonts
     paths = [p for p in (images or []) if p and os.path.isfile(p)]
     if len(paths) < MIN_PHOTOS:
-        raise ValueError("Whip-Zoom Showcase needs at least %d photos" % MIN_PHOTOS)
+        raise ValueError("Dynamic Collection Showcase needs at least %d photos" % MIN_PHOTOS)
     if len(paths) > MAX_PHOTOS:
         paths = paths[:MAX_PHOTOS]
 

@@ -2483,8 +2483,8 @@ class Handler(SimpleHTTPRequestHandler):
                             traceback.print_exc()
                     # 屏幕文字 / 口播（step4 Captions & Voiceover 可选）。
                     # 单图模版没有原生文字元素：captions = 后处理烧一行 AI 起稿的
-                    # 产品介绍；voiceover = 三段式配音+字幕（字幕本身就是屏幕文字，
-                    # 两者同开时跳过 captions 行，避免叠字）。
+                    # 产品介绍；voiceover = 三段式配音+字幕（2026-11-11 起两者可同开：
+                    # caption 在中上、口播字幕在中下，位置错开不再叠字）。
                     # 位置（用户 2026-10-20 定稿）：captions 行 → 中上方 + 加大
                     # 字号；口播字幕 → 中下（sub_pos="lower"，四个模版统一）。
                     _vo = body.get("voiceover") or {}
@@ -2492,7 +2492,7 @@ class Handler(SimpleHTTPRequestHandler):
                     vo_meta = None
                     vo_error = None
                     cap_meta = None
-                    if _cap.get("on") and not _vo.get("on"):
+                    if _cap.get("on"):
                         try:
                             from core import voiceover as _volib
                             _line = str(_cap.get("text") or "").strip()
@@ -2740,7 +2740,7 @@ class Handler(SimpleHTTPRequestHandler):
                             traceback.print_exc()
                     # 屏幕文字 / 口播（step4 Captions & Voiceover 可选）。滚动画廊
                     # 没有原生文字元素：captions = 后处理烧一行 AI 起稿的产品介绍；
-                    # voiceover = 三段式配音+字幕（字幕即屏幕文字，同开时跳过 captions）。
+                    # voiceover = 三段式配音+字幕（2026-11-11 起可同开，位置错开）。
                     # 位置（用户 2026-10-20 定稿）：captions 行 → 中上方 + 加大
                     # 字号；口播字幕 → 中下（sub_pos="lower"，四个模版统一）。
                     _vo = body.get("voiceover") or {}
@@ -2748,7 +2748,7 @@ class Handler(SimpleHTTPRequestHandler):
                     vo_meta = None
                     vo_error = None
                     cap_meta = None
-                    if _cap.get("on") and not _vo.get("on"):
+                    if _cap.get("on"):
                         try:
                             from core import voiceover as _volib
                             _line = str(_cap.get("text") or "").strip()
@@ -3315,9 +3315,10 @@ class Handler(SimpleHTTPRequestHandler):
                 project 项目id(可选) / ratio 画幅(默认 9x16) / fps(默认 30) /
                 silent true 则跳过配乐（默认配 Wedding_01_657 婚礼竖琴向 BGM，2026-11-02 指定；
                   不与其他模版 BGM 重复） /
-                captions {on, text} step4「Add Captions」：on=true 烧一行产品介绍于中上方；
-                voiceover {on, selling, cta} step4 三段式口播(2026-11-09 起可选，与 captions 同开时
-                  以 voiceover 字幕为准)；任何失败不影响画面交付
+                captions {on, text} step4「Add Captions」：on=true 烧一行产品介绍于中上方
+                  （半透明深色底板+白字，浅色请柬也清晰；留空自动兜底默认句）；
+                voiceover {on, selling, cta} step4 三段式口播(2026-11-09 起可选，
+                  与 captions 可同开：caption 中上、口播字幕中下)；任何失败不影响画面交付
                 返回：异步 job，result 含 {video, file, secs, images, ratio,
                 captions(布尔), voiceover(布尔), voiceover_error}
                 """
@@ -3424,6 +3425,7 @@ class Handler(SimpleHTTPRequestHandler):
                         video = "/media/decorshow/%s" % base
                     return {"video": video, "file": out, "secs": secs,
                             "images": res["images"], "ratio": res.get("ratio"),
+                            "captions": bool(cap_meta),
                             "voiceover": bool(vo_meta),
                             "voiceover_error": vo_error}
                 run_job(jid, work, branding=branding)
@@ -3848,7 +3850,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"job": jid})
 
             if p == "/api/zoom-punch":
-                """剪映风格转场模版（Whip-Zoom Showcase）—— 编排取自参考片，
+                """剪映风格转场模版（Dynamic Collection Showcase）—— 编排取自参考片，
                 转场按用户定稿改为「剪映里的常见转场」（干净规整、边缘锐利）。
 
                 与 /api/fast-cut（Beat-Synced，硬切静止）完全独立：管线在 core.zoom_punch
@@ -3860,7 +3862,8 @@ class Handler(SimpleHTTPRequestHandler):
                 基础类   dissolve 叠化/flash 闪白/black 黑场/zoom 缩放/rotate 旋转；
                 特效类   glitch 故障/mosaic 马赛克/mirror 镜像分屏/flip_page 翻页。
                 10 张图即覆盖前 9 种（含 2 次左右切入）；转场帧全分辨率合成，硬边锐利；
-                开场白条深色衬线标题（两行 + 四角星装饰，参考片原文样式）淡入淡出；
+                开场白条深色衬线标题（每行 ≤70% 屏宽，超长自动折行最多 4 行 +
+                  四角星装饰，参考片原文样式）淡入淡出；
                 原图直出无滤镜调色），不动其它模版的编排。
 
                 入参(JSON)：srcs 图片路径列表(必填，3~99 张) /
@@ -3962,7 +3965,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if pid:
                         p2 = load_project(pid)
                         p2.setdefault("zoompunch", []).append(
-                            {"file": out, "name": "Whip-Zoom %ss" % secs,
+                            {"file": out, "name": "Dynamic Collection %ss" % secs,
                              "kind": "zoompunch", "dur": secs})
                         save_project(p2)
                         video = "/media/%s/zoompunch/%s" % (pid, base)
