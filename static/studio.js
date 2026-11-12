@@ -334,6 +334,39 @@ function updateTplSelection() {
     : "Pick a template first.";
 }
 
+/* 2026-11-12 用户①：悬停按需加载示例视频（封面图优先的另一半）。
+   首次悬停才创建 <video src=cover>（muted、不预载元数据以外内容），
+   移出即 pause + 销毁，还原海报 <img>——同一样片反复悬停由浏览器缓存兜底。 */
+function lazyPlayThumb(thumb) {
+  if (!thumb || thumb.querySelector("video")) return;
+  const id = thumb.dataset.id;
+  const t = (TPL_ALL.templates || []).find((x) => x.id === id);
+  if (!t || !t.cover) return;
+  const img = thumb.querySelector("img");
+  const v = document.createElement("video");
+  v.src = t.cover;
+  v.muted = true;
+  v.loop = true;
+  v.playsInline = true;
+  v.setAttribute("playsinline", "");
+  v.addEventListener("loadeddata", () => {
+    // 视频真正有画面了才盖过海报，避免半加载状态发黑
+    if (img) img.style.visibility = "hidden";
+    v.play().catch(() => {});
+  });
+  thumb.insertBefore(v, thumb.firstChild);
+}
+function stopThumbVideo(thumb) {
+  if (!thumb) return;
+  const v = thumb.querySelector("video");
+  if (v) {
+    try { v.pause(); } catch (e) {}
+    v.remove();
+  }
+  const img = thumb.querySelector("img");
+  if (img) img.style.visibility = "";
+}
+
 function openTplPreview(id) {
   const t = (TPL_ALL.templates || []).find((x) => x.id === id);
   if (!t) return;
@@ -593,10 +626,10 @@ function updateGenBtn() {
   //   three-screen (Three-Screen)→ 5  (server.py /api/three-screen: len(srcs) < 5)
   //   carousel (New Collection)  → 2  (server.py /api/carousel: len(srcs) < 2)
   //   decor-show (Decor)         → 3  (server.py /api/decor-show: len(srcs) < 3)
-  //   collage-palette (Wedding Look) → 3  (server.py /api/collage-palette: len(srcs) < 3)
-  //   bw_reveal (B&W->Color Reveal) → 2  (server.py /api/bw-reveal: len(srcs) < 2, cap 12)
+  //   collage-palette (Wedding Look) → 3  (server.py /api/collage-palette: len(srcs) < 3, no cap)
+  //   bw_reveal (B&W->Color Reveal) → 10  (server.py /api/bw-reveal: len(srcs) < 10, no cap)
   //   zoom_punch (Dynamic Collection Showcase) → 3 (server.py /api/zoom-punch: len(srcs) < 3, cap 99)
-  const min = zp ? 3 : multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 5 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : bw ? 2 : 1;
+  const min = zp ? 3 : multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 10 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : bw ? 10 : 1;
   const recog = recogPending();
   $("#btnToStep3").disabled = n === 0 || ST.busy || n < min || recog;
   let eta = "";
@@ -612,9 +645,8 @@ function updateGenBtn() {
     if (top5 && n < 3) eta += " \u00B7 add at least 3 photos to continue";
     if (car && n < 2) eta += " \u00B7 add one more photo to continue";
     if (collage && n < 3) eta += " \u00B7 add at least 3 photos to continue";
-    if (bw && n < 2) eta += " \u00B7 add at least 2 photos to continue";
+    if (bw && n < 10) eta += " \u00B7 add at least 10 photos to continue";
     if (zp && n < 3) eta += " \u00B7 add at least 3 photos to continue";
-    if (bw && n >= 12) eta += " \u00B7 maximum reached";
     if (recog) eta += " \u00B7 recognizing design names\u2026";
     if ((multi || four) && n >= 8) eta += " \u00B7 maximum reached";
     if (cin && n >= 12) eta += " \u00B7 maximum reached";
@@ -1634,7 +1666,7 @@ async function generate() {
       applyBgm(body);
       ({ job } = await api("/api/collage-palette", body));
     } else if (t.pipeline === "bw_reveal") {
-      // B&W → Color Reveal: 2-12 photos -> each opens B&W then reveals in colour
+      // B&W → Color Reveal: 10+ photos -> each opens B&W then reveals in colour
       // with a continuous camera move; optional opening title (Add Captions toggle)
       // and optional voiceover (step-4 toggle, 2026-11-09).
       const body = {
@@ -1768,18 +1800,18 @@ function bind() {
     if (el.dataset.act === "choose") chooseTemplate(id);
     else if (el.dataset.act === "preview") openTplPreview(id);
   });
-  // hover a card → its sample plays; leave → it rewinds
+  // hover a card → load & play its sample video on demand; leave → discard it.
+  // 2026-11-12 用户①：封面图优先——不再预载 13 个示例视频，悬停才创建
+  // <video>（节省流量 + 避免首屏发黑），移出即销毁还原海报。
   $("#tplGrid").addEventListener("mouseover", (e) => {
     const thumb = e.target.closest(".tpl-thumb");
     if (!thumb) return;
-    const v = thumb.querySelector("video");
-    if (v) v.play().catch(() => {});
+    lazyPlayThumb(thumb);
   });
   $("#tplGrid").addEventListener("mouseout", (e) => {
     const thumb = e.target.closest(".tpl-thumb");
     if (!thumb || thumb.contains(e.relatedTarget)) return;
-    const v = thumb.querySelector("video");
-    if (v) { try { v.pause(); v.currentTime = 0; } catch (err) {} }
+    stopThumbVideo(thumb);
   });
   // template preview lightbox
   $("#tplLbClose").addEventListener("click", closeTplPreview);

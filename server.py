@@ -3457,11 +3457,10 @@ class Handler(SimpleHTTPRequestHandler):
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
-                if len(srcs) < 2:
+                if len(srcs) < 10:
                     return self.send_json(
-                        {"error": "This template needs at least 2 photos — upload at least 2 photos first"}, 400)
-                if len(srcs) > 12:
-                    srcs = srcs[:12]
+                        {"error": "This template needs at least 10 photos — upload at least 10 photos first"}, 400)
+                # 2026-11-12 用户：B&W → Color Reveal 不再设 12 张上限（时长随张数增长）
                 from core.card_pan import norm_ratio as _norm_ratio
                 ratio = _norm_ratio(body.get("ratio"))
                 fps = int(body.get("fps") or 30)
@@ -3765,9 +3764,9 @@ class Handler(SimpleHTTPRequestHandler):
                 pid = body.get("project")
                 srcs = [s for s in (body.get("srcs") or []) if s]
                 srcs = [s for s in srcs if os.path.isfile(s)]
-                if len(srcs) < 5:
+                if len(srcs) < 10:
                     return self.send_json(
-                        {"error": "This template needs at least 5 photos — upload at least 5 photos first"}, 400)
+                        {"error": "This template needs at least 10 photos — upload at least 10 photos first"}, 400)
                 if len(srcs) > 99:
                     srcs = srcs[:99]
                 from core.card_pan import norm_ratio as _norm_ratio

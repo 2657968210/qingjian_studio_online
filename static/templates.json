@@ -50,13 +50,14 @@
       "category": "palettes",
       "pipeline": "collage_palette",
       "cover": "/static/templates/tpl_weddinglook.mp4",
-      "target_secs": "scales with photo count (3-12)",
+      "poster": "/static/templates/tpl_weddinglook.jpg",
+      "target_secs": "scales with photo count (3+)",
       "recommended_ratio": "9:16",
       "desc": "Present your stationery alongside matching colors and wedding details.",
       "moves": [
         {
           "id": "summary",
-          "label": "3-12 photos"
+          "label": "3+ photos"
         }
       ]
     },
@@ -83,6 +84,7 @@
       "category": "products",
       "pipeline": "multi_suite",
       "cover": "/static/templates/tpl_multi.mp4",
+      "poster": "/static/templates/tpl_multi.jpg",
       "target_secs": 15,
       "recommended_ratio": "9:16",
       "desc": "Introduce multiple designs, with a moment for each one.",
@@ -116,6 +118,7 @@
       "category": "palettes",
       "pipeline": "scroll_gallery",
       "cover": "/static/templates/tpl_scroll_bgm.mp4",
+      "poster": "/static/templates/tpl_scroll.jpg",
       "target_secs": "5s scroll + per-photo (scales)",
       "recommended_ratio": "9:16",
       "desc": "Pair your stationery with wedding scenes to share a coordinated look.",
@@ -139,7 +142,7 @@
       "moves": [
         {
           "id": "summary",
-          "label": "5+ photos"
+          "label": "10+ photos"
         }
       ]
     },
@@ -183,6 +186,7 @@
       "category": "top",
       "pipeline": "top5",
       "cover": "/static/templates/tpl_top5.mp4",
+      "poster": "/static/templates/tpl_top5.jpg",
       "target_secs": "scales with photo count (3-8)",
       "recommended_ratio": "9:16",
       "desc": "Count down your favorite designs with their names.",
@@ -199,6 +203,7 @@
       "category": "products",
       "pipeline": "card_pan",
       "cover": "/static/templates/tpl_card_pan.mp4",
+      "poster": "/static/templates/tpl_cardpan.jpg",
       "target_secs": 15,
       "recommended_ratio": "9:16",
       "desc": "Highlight one invitation design with gentle motion and detail close-ups.",
@@ -233,13 +238,13 @@
       "pipeline": "bw_reveal",
       "cover": "/static/templates/tpl_bwreveal.mp4",
       "poster": "/static/templates/tpl_bwreveal.jpg",
-      "target_secs": "scales with photo count (2-12)",
+      "target_secs": "scales with photo count (10+)",
       "recommended_ratio": "9:16",
       "desc": "Each photo opens in black & white, then reveals in full colour with a continuous camera move. Add an optional opening title.",
       "moves": [
         {
           "id": "summary",
-          "label": "2-12 photos"
+          "label": "10+ photos"
         }
       ]
     }

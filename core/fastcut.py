@@ -4,7 +4,7 @@
 复刻用户 2026-10-21 确认的成品口径（参考 案例/快剪/document_810w-k5Y5ikVno0k.mp4，
  standalone 脚本 wed_fastcut_v2.py / v3 的既有取景）：
 
-  * N(3~12) 张图，每张**仅出场 1 次、按顺序播放、不循环**（用户 2026-10-30 要求）；
+  * N(10~99) 张图，每张**仅出场 1 次、按顺序播放、不循环**（用户 2026-10-30 要求）；
     取景只保留 **全景(1.00) + 中景(1.10) 两档**，且全部**居中裁切**
     （anchor 恒为 0.5），去掉旧版的上/下竖锚漂移与 1.16 特写推近，
     保证产品始终在画面中央、不被裁切；按「全员一轮」循环排序；
@@ -24,7 +24,7 @@
 ----
 render_fastcut(images, out_path, ratio="9x16", fps=30,
                text=DEFAULT_TEXT, show_text=True, progress=None)
-  images   : 图片路径列表（3~12 张）
+  images   : 图片路径列表（10~99 张）
   text     : 持久字幕（可选；空则回退默认句）
   show_text: False 则完全不叠字幕（即便 text 非空）
   返回 dict：{video, secs, images, ratio}
@@ -59,7 +59,7 @@ ANCHOR_CENTER = 0.50
 TEXT_W_RATIO = 0.62     # 字幕字宽上限（占屏宽）
 TEXT_CY = 0.44          # 字幕垂直中心（占屏高）
 DEFAULT_TEXT = "the details, the day"
-MIN_PHOTOS, MAX_PHOTOS = 3, 99
+MIN_PHOTOS, MAX_PHOTOS = 10, 99
 
 CRF = 17
 PRESET = "slow"

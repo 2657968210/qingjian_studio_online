@@ -684,6 +684,9 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
   overflow: hidden;
 }
 .tpl-thumb video { width: 100%; height: 100%; object-fit: contain; display: block; background: #111; }
+/* 2026-11-12 用户①：封面图优先——卡片默认显示海报 <img>（秒开、不发黑），
+   悬停/预览时才按需加载示例视频；img 与 video 同一份填充规则。 */
+.tpl-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; background: #111; }
 .tpl-play {
   position: absolute; right: 10px; bottom: 10px; width: 38px; height: 38px; border-radius: 50%;
   border: 1px solid rgba(255,255,255,.7); background: rgba(34,31,27,.55); color: #fff;

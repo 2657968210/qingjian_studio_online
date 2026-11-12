@@ -15,7 +15,7 @@ N(2~12) 张请柬/纸品图 -> 每张先以**黑白**呈现，再**同图彩色�
 ----
 render_bw_reveal(images, out_path, ratio="9x16", fps=30,
                 text="details ...incoming", use_text=True, progress=None, font=None)
-  images   : 图片路径列表（2~12 张）
+  images   : 图片路径列表（10~99 张）
   text     : 开场标题（可选；空则回退默认句）
   use_text : False 则完全不叠开场标题（即便 text 非空）
   font     : 客户自选字体键（core.fonts；None = 斜体 Cormorant Garamond 默认）
@@ -61,7 +61,7 @@ PRESET = "medium"
 # 每张图运镜方向循环（轻漂移 + 轻微推近），相邻图方向不同、避免重复感
 _DIRS = [(1, 0), (0, 1), (-1, 0), (0, -1), (1, 1), (-1, -1)]
 
-MIN_PHOTOS, MAX_PHOTOS = 2, 12
+MIN_PHOTOS, MAX_PHOTOS = 10, 99
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +149,10 @@ def _build_title(text, W, H, font_path=None):
 # ---------------------------------------------------------------------------
 def render_bw_reveal(images, out_path, ratio="9x16", fps=30,
                      text=DEFAULT_TEXT, use_text=True, progress=None, font=None):
-    """N(2~12) 张图 -> 黑白->彩色 连续运镜揭示（仅画面，无音轨）。
+    """N(10~99) 张图 -> 黑白->彩色 连续运镜揭示（仅画面，无音轨）。
 
-    时长随张数自动调整：总镜头 = 2N（每图 黑白镜+彩色镜），总长 = min(12.5, 2N*0.55)。
+    时长随张数自动调整：总镜头 = 2N（每图 黑白镜+彩色镜），总长 = min(12.5, 2N*0.55)
+    —— 张数更多时每镜按比例缩短，总长仍贴住卡点 BGM 上限（张数不设上限）。
     font: 客户自选字体键（core.fonts；None = 斜体 Cormorant Garamond 默认）。
     """
     from core import fonts as _fonts
