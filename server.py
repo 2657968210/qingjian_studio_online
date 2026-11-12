@@ -8,7 +8,7 @@
 import os, sys, json, time, uuid, threading, re, traceback, base64, hmac, shutil, hashlib
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote, quote
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
@@ -1544,8 +1544,16 @@ class Handler(SimpleHTTPRequestHandler):
         if code == 206:
             self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
         if download_name:
+            # 2026-11-12：下载名改成模板名后会含空格 / & / → 等字符。
+            # RFC 5987 的 filename* 必须百分号编码，裸拼会让浏览器截在空格处；
+            # 同时给一个纯 ASCII 的 filename= 兼容老浏览器（非法字符换 _）。
+            enc = quote(download_name, safe="")
+            fallback = "".join(
+                c if 32 <= ord(c) < 127 and c not in '"\\' else "_"
+                for c in download_name)
             self.send_header("Content-Disposition",
-                             "attachment; filename*=UTF-8''%s" % download_name)
+                             'attachment; filename="%s"; filename*=UTF-8\'\'%s'
+                             % (fallback, enc))
         self.end_headers()
         f.seek(start)
         remain = end - start + 1

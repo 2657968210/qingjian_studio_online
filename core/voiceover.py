@@ -757,6 +757,11 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
         if (bb[2] - bb[0]) <= target_w:
             break
         size -= 2
+    # 2026-11-12 用户：花体（Great Vibes）字太小，要和方体差不多大。
+    # libass 按字体自身度量缩放，同一 Fontsize 下 Great Vibes 的可见字只有
+    # 方体约 1/8；这里按字体补偿（core.fonts.ass_scale），仅作用于 ASS 烧录路径。
+    # PIL 直绘（fastcut / cinematic）不经过 libass，不补偿，保持原观感。
+    size = min(_fonts.ASS_SIZE_MAX, int(round(size * _fonts.ass_scale(font))))
     write_ass(ass_path, [(line, 0.0, vdur)], w, h, pos=sub_pos, size=size,
               fontname=_fonts.ass_family(font), bold=fb, italic=fi,
               style="Cap")

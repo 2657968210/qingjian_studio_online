@@ -357,18 +357,78 @@ function closeTplPreview() {
   $("#tplLightbox").hidden = true;
 }
 
-/* 2026-11-03 · 上传照片点击放大预览（lightbox） */
+/* 2026-11-03 · 上传照片点击放大预览（lightbox）
+   2026-11-12 用户：放大后还要能「再次放大」——滚轮 / +− 按钮连续缩放（1x~5x），
+   放大后可拖拽平移，双击在 1x 与 2x 间切换，Fit 复位。 */
+const PHOTO_ZOOM_MIN = 1, PHOTO_ZOOM_MAX = 5, PHOTO_ZOOM_STEP = 0.25;
+let _pz = 1, _ppx = 0, _ppy = 0, _pDrag = null;
+
+function applyPhotoZoom() {
+  const img = $("#photoLbImg");
+  if (img) {
+    img.style.transform = "translate(" + _ppx + "px," + _ppy + "px) scale(" + _pz + ")";
+    img.classList.toggle("zoomed", _pz > 1.001);
+  }
+  const lab = $("#photoZoomLabel");
+  if (lab) lab.textContent = Math.round(_pz * 100) + "%";
+}
+function setPhotoZoom(z) {
+  _pz = Math.min(PHOTO_ZOOM_MAX,
+    Math.max(PHOTO_ZOOM_MIN, Math.round(z * 100) / 100));
+  if (_pz <= PHOTO_ZOOM_MIN + 0.001) { _ppx = 0; _ppy = 0; }  // 回到 1x 归位
+  applyPhotoZoom();
+}
+function resetPhotoZoom() {
+  _pz = PHOTO_ZOOM_MIN; _ppx = 0; _ppy = 0; _pDrag = null;
+  applyPhotoZoom();
+}
 function openPhotoPreview(src) {
   const lb = $("#photoLightbox");
   if (!lb) return;
   $("#photoLbImg").src = src;
+  resetPhotoZoom();
   lb.hidden = false;
 }
 function closePhotoPreview() {
   const lb = $("#photoLightbox");
   if (!lb) return;
   $("#photoLbImg").removeAttribute("src");
+  resetPhotoZoom();
   lb.hidden = true;
+}
+function bindPhotoZoom() {
+  const vp = $("#photoLbViewport"), img = $("#photoLbImg");
+  if (!vp || !img) return;
+  vp.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    setPhotoZoom(_pz + (e.deltaY < 0 ? PHOTO_ZOOM_STEP : -PHOTO_ZOOM_STEP));
+  }, { passive: false });
+  const plus = $("#photoZoomIn"), minus = $("#photoZoomOut"), fit = $("#photoZoomReset");
+  if (plus) plus.addEventListener("click", () => setPhotoZoom(_pz + PHOTO_ZOOM_STEP));
+  if (minus) minus.addEventListener("click", () => setPhotoZoom(_pz - PHOTO_ZOOM_STEP));
+  if (fit) fit.addEventListener("click", resetPhotoZoom);
+  // 双击：1x ↔ 2x。刻意不绑「单击缩放」——单击与双击、拖拽都会互相抢事件。
+  img.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    setPhotoZoom(_pz > 1.001 ? PHOTO_ZOOM_MIN : 2);
+  });
+  img.addEventListener("pointerdown", (e) => {
+    _pDrag = { x: e.clientX, y: e.clientY, px: _ppx, py: _ppy,
+               moved: false, active: _pz > 1.001 };
+    if (!_pDrag.active) return;
+    img.classList.add("dragging");
+    try { img.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  img.addEventListener("pointermove", (e) => {
+    if (!_pDrag || !_pDrag.active) return;
+    const dx = e.clientX - _pDrag.x, dy = e.clientY - _pDrag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) _pDrag.moved = true;
+    _ppx = _pDrag.px + dx; _ppy = _pDrag.py + dy;
+    applyPhotoZoom();
+  });
+  const endDrag = () => img.classList.remove("dragging");
+  img.addEventListener("pointerup", endDrag);
+  img.addEventListener("pointercancel", endDrag);
 }
 
 /* ============================================================================
@@ -1604,7 +1664,13 @@ async function generate() {
     const voReq = !!voPayload();   // 2026-11-06: voiceover requested? (surface failures)
     const res = await pollJob(job, (j) => setRender(j.progress || 5, j.msg || "Creating…"));
     const secs = res.secs || 0;
-    const name = "invitation-promo-" + fmt1(secs) + "s.mp4";
+    // 2026-11-12 用户：下载文件名与模板名称一致（不再是 invitation-promo-XXs.mp4）。
+    // 只剔除文件系统/URL 非法字符，空格、&、→ 等原样保留以贴近模板名；
+    // 服务端 ?dl= 走 RFC5987 百分号编码，能安全承载这些字符。
+    const tplName = (t && t.name ? String(t.name) : "invitation-promo")
+      .replace(/[\\/:*?"<>|\x00-\x1f]/g, "-")
+      .replace(/\s+/g, " ").trim();
+    const name = (tplName || "invitation-promo") + ".mp4";
     const video = res.video || (res.file ? "/media/" + ST.project.id + "/cameramove/" + res.file.split("/").pop() : "");
     setResultVideo(video);
     $("#btnDownload").href = video + (video.indexOf("?") >= 0 ? "&" : "?") + "dl=" + encodeURIComponent(name);
@@ -1720,11 +1786,12 @@ function bind() {
   $("#tplLightbox").addEventListener("click", (e) => {
     if (e.target.id === "tplLightbox") closeTplPreview();
   });
-  // uploaded-photo preview lightbox (2026-11-03)
+  // uploaded-photo preview lightbox (2026-11-03 / 2026-11-12 zoom)
   $("#photoLbClose").addEventListener("click", closePhotoPreview);
   $("#photoLightbox").addEventListener("click", (e) => {
     if (e.target.id === "photoLightbox") closePhotoPreview();
   });
+  bindPhotoZoom();
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (!$("#photoLightbox").hidden) closePhotoPreview();

@@ -408,11 +408,20 @@
 
 <div class="toast" id="toast" hidden></div>
 
-<!-- uploaded-photo preview lightbox（2026-11-03：上传图片点击放大预览） -->
+<!-- uploaded-photo preview lightbox（2026-11-03 点击放大；2026-11-12 滚轮/按钮二次缩放 + 拖拽平移） -->
 <div class="mask" id="photoLightbox" hidden>
-  <div class="lb">
+  <div class="lb lb-photo">
     <button class="lb-x" id="photoLbClose" type="button" title="Close">&times;</button>
-    <img id="photoLbImg" alt="">
+    <div class="lb-viewport" id="photoLbViewport">
+      <img id="photoLbImg" alt="" draggable="false">
+    </div>
+    <div class="lb-zoombar">
+      <button class="lb-zbtn" id="photoZoomOut" type="button" title="Zoom out">&minus;</button>
+      <span id="photoZoomLabel">100%</span>
+      <button class="lb-zbtn" id="photoZoomIn" type="button" title="Zoom in">+</button>
+      <button class="lb-zbtn lb-zreset" id="photoZoomReset" type="button" title="Fit to window">Fit</button>
+      <span class="lb-hint">Scroll to zoom &middot; drag to pan &middot; double-click to toggle</span>
+    </div>
   </div>
 </div>
 

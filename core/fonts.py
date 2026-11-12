@@ -59,3 +59,25 @@ def ass_flags(key):
 def label(key):
     """字体键 → 前端展示名（后端日志/回显用）。"""
     return _FONTS[norm(key)][4]
+
+
+# 2026-11-12 用户：花体（Great Vibes）选中后画面上的字明显比方体小。
+# 原因不是字号数值，而是 libass 按字体自己的 OS/2 ascent/descent 度量缩放：
+# 同一句「Hand-finished wedding invitations」在 1080x1920 上实测——
+#   italic  Fontsize 54 → 白字 785x45px / 9937 个可见像素
+#   script  Fontsize 62 → 白字 374x40px / 1294 个可见像素（只有方体约 1/8）
+# 即使 PIL 按屏宽拟合出来的 Fontsize 更大，libass 仍把 Great Vibes 压得很小，
+# 加上花体笔划极细、x-height 低，观感就更小。故 ASS 路径按字体补偿字号；
+# PIL 直绘路径（fastcut / cinematic）不走 libass，实测花体反而比方体大，不补偿。
+_ASS_SCALE = {
+    "serif":  1.0,
+    "italic": 1.0,
+    "light":  1.0,
+    "script": 1.5,     # 62 → 93：可见字高 ≈ 60px，与方体 45px 同量级且略醒目
+}
+ASS_SIZE_MAX = 160     # 补偿后的硬上限：短句拟合本来就是 100，×1.5 仍需留折行余量
+
+
+def ass_scale(key):
+    """字体键 → ASS/libass 烧录时的字号补偿系数（PIL 直绘不要用）。"""
+    return _ASS_SCALE.get(norm(key), 1.0)
