@@ -630,7 +630,8 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
 /* ============================================================================
    STEP 1 · 模版库
    ========================================================================== */
-.tpl-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 22px; }
+/* 2026-11-12 用户：搜索框独占第一行（右对齐），分类 chips 在其下方整行。 */
+.tpl-bar { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin: 4px 0 22px; }
 .tpl-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip {
   font: inherit; font-size: 13.5px; color: var(--ink-2);
@@ -642,7 +643,8 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
 .tpl-search {
   font: inherit; font-size: 14px; color: var(--ink);
   background: var(--surface); border: 1px solid var(--line-strong);
-  border-radius: 999px; padding: 8px 16px; min-width: 200px; margin-left: auto;
+  border-radius: 999px; padding: 8px 16px;
+  width: min(100%, 260px); align-self: flex-end; margin-left: 0;
 }
 .tpl-search:focus { outline: 2px solid var(--accent-tint); border-color: var(--accent); }
 
@@ -778,8 +780,9 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
 .font-preview[data-font="serif"]  span { font-family: "Cormorant SemiBold", serif; }
 .font-preview[data-font="italic"] span { font-family: "Cormorant SemiBoldItalic", serif; }
 .font-preview[data-font="light"]  span { font-family: "Cormorant MediumItalic", serif; }
-/* 2026-11-12：Great Vibes 的 x-height 远小于 Cormorant，同样的 px 看起来小一截。
-   预览字号放大到与视频里的 ASS 补偿（core.fonts.ass_scale=1.5）同一量级。 */
+/* 2026-11-12：Great Vibes 的 x-height 远小于 Cormorant，同样的 px 看起来小一截；
+   预览按可见字高放大到与其它字体同等观感（视频里所有字体已统一用
+   core.textlayer 的同一字号数值，不再走 ASS 补偿）。 */
 .font-preview[data-font="script"] span { font-family: "Great Vibes", cursive; font-size: 44px; line-height: 1.05; }
 
 /* 上传照片缩略图：可点击放大预览 */

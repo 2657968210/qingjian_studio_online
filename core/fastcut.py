@@ -88,24 +88,12 @@ def _build_text_overlay(text, W, H, font_path=None):
     text = (text or "").strip()
     if not text:
         return np.zeros((H, W, 3), np.float32), np.zeros((H, W, 1), np.float32)
-    fpath = font_path or ITALIC
-    target_w = int(W * TEXT_W_RATIO)
-    size = 100
-    while size > 10:
-        f = ImageFont.truetype(fpath, size)
-        d = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
-        bb = d.textbbox((0, 0), text, font=f)
-        if bb[2] - bb[0] <= target_w:
-            break
-        size -= 2
-    f = ImageFont.truetype(fpath, size)
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    bb = d.textbbox((0, 0), text, font=f)
-    tw, th = bb[2] - bb[0], bb[3] - bb[1]
-    x = (W - tw) // 2 - bb[0]
-    y = int(H * TEXT_CY) - th // 2 - bb[1]
-    d.text((x, y), text, font=f, fill=(255, 255, 255, 255))
+    # 2026-11-12：改用全站唯一文字层（core.textlayer），与 captions 后处理
+    # 共用字号/折行规则；短句单行定位与旧版逐像素一致，长句新增自动换行。
+    from core import textlayer
+    layer = textlayer.render(text, W, H, font_path or ITALIC)
+    if layer is None:
+        return np.zeros((H, W, 3), np.float32), np.zeros((H, W, 1), np.float32)
     arr = np.array(layer)   # RGBA uint8
     rgb = arr[:, :, :3][:, :, ::-1].astype(np.float32)      # RGB -> BGR
     a = arr[:, :, 3:4].astype(np.float32) / 255.0

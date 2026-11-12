@@ -11,11 +11,13 @@
     script  GreatVibes-Regular                手写花体（签名感）
 
 两个消费面：
-    PIL 直绘（fastcut/cinematic/three_screen/multi_suite/four_grid）→ ttf(key)
-      给精确的字体文件，零匹配歧义；
-    libass 烧录（voiceover.apply_caption 的 captions 行）→ ass_style(key)
+    PIL 直绘（core.textlayer：fast_cut 系 + captions 后处理，2026-11-12 起）
+      → ttf(key) 给精确字体文件，零匹配歧义，且字号全站唯一；
+    libass 烧录（voiceover.apply_voiceover 的口播字幕）→ ass_family/ass_flags
       ASS 只认「字体族名 + Bold/Italic 旗标」，靠 subtitles 滤镜的 fontsdir
       指到随包目录完成匹配（族名是字体的内部名，不是文件名）。
+    captions 屏幕文字已不再走 libass：ASS 会按字体自身度量缩放，把
+    Great Vibes 压到 Cormorant 约 1/8，无法保证「任何字体字号一致」。
 """
 import os
 
@@ -61,23 +63,7 @@ def label(key):
     return _FONTS[norm(key)][4]
 
 
-# 2026-11-12 用户：花体（Great Vibes）选中后画面上的字明显比方体小。
-# 原因不是字号数值，而是 libass 按字体自己的 OS/2 ascent/descent 度量缩放：
-# 同一句「Hand-finished wedding invitations」在 1080x1920 上实测——
-#   italic  Fontsize 54 → 白字 785x45px / 9937 个可见像素
-#   script  Fontsize 62 → 白字 374x40px / 1294 个可见像素（只有方体约 1/8）
-# 即使 PIL 按屏宽拟合出来的 Fontsize 更大，libass 仍把 Great Vibes 压得很小，
-# 加上花体笔划极细、x-height 低，观感就更小。故 ASS 路径按字体补偿字号；
-# PIL 直绘路径（fastcut / cinematic）不走 libass，实测花体反而比方体大，不补偿。
-_ASS_SCALE = {
-    "serif":  1.0,
-    "italic": 1.0,
-    "light":  1.0,
-    "script": 1.5,     # 62 → 93：可见字高 ≈ 60px，与方体 45px 同量级且略醒目
-}
-ASS_SIZE_MAX = 160     # 补偿后的硬上限：短句拟合本来就是 100，×1.5 仍需留折行余量
-
-
-def ass_scale(key):
-    """字体键 → ASS/libass 烧录时的字号补偿系数（PIL 直绘不要用）。"""
-    return _ASS_SCALE.get(norm(key), 1.0)
+# 2026-11-12 定稿：删掉原来的 ASS 字号补偿（ass_scale=1.5）。
+# 曾用它给 Great Vibes 补 libass 的度量缩放，但「无论什么字体字号都一样」
+# 无法靠系数保证。现在 captions 与 Beat-Synced 共用 core.textlayer 的 PIL
+# 文字层，所有字体直接用同一个字号数值，补偿逻辑整体废弃。

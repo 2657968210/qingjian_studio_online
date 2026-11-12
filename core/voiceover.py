@@ -724,13 +724,14 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
                   font=None):
     """把一行产品介绍文字全程烧在画面上（captions 开、voiceover 关时用）。
 
-    2026-11-11 用户②：与 Beat-Synced Showcase(fast_cut / cinematic) **完全一致**——
-    纯白斜体、无底板、字号自适应（上限 100、按 62% 屏宽收缩）、垂直居中于 44%
-    屏高（同 core.fastcut._build_text_overlay 的 TEXT_W_RATIO / TEXT_CY）。
-    font: 客户自选字体键（2026-10-26 core.fonts 注册表）——ASS Fontname 写
-    字体族名、subtitles 滤镜加 fontsdir 指到随包 static/fonts/，libass 按
-    族名+Bold/Italic 旗标精确匹配（None = 默认斜体 CG，即 Beat-Synced 同款观感）。
-    视频流重编码（烧字幕），音频流 copy；不改原文件。
+    2026-11-12 定稿：文字层由 core.textlayer.render() 生成，与 Beat-Synced
+    Showcase (fast_cut) **同一个函数、同一个字号数值、同一套折行规则**——
+    纯白、无底板、单行优先按 62% 屏宽自适应（上限 100）、长文案最多 3 行
+    自动折行、文字块垂直居中 44% 屏高。不再经 ASS/libass，任何字体（含
+    Great Vibes）都不会被字体度量压小。
+    font: 客户自选字体键（core.fonts.ttf → 随包 static/fonts/*.ttf）。
+    sub_pos: 保留兼容旧调用；Cap 文字一律 44% 屏高，与 Beat-Synced 对齐。
+    视频流重编码（PNG overlay），音频流 copy；不改原文件。
     """
     from core import fonts as _fonts
     line = str(line or "").strip()
@@ -743,34 +744,32 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
     fps, vdur, (w, h) = probe(video_in)
     if progress:
         progress(50, 100, "Burning on-screen text")
-    ass_path = os.path.join(work_dir, "cap.ass")
-    fb, fi = _fonts.ass_flags(font)
-    # 字号自适应：与 core.fastcut._build_text_overlay 同一套算法（上限 100、
-    # 按 62% 屏宽收缩），保证和 Beat-Synced 视觉一致（而不是旧版固定 72 号字）。
-    fpath = _fonts.ttf(font) or _fonts.ttf(None)
-    target_w = int(w * 0.62)
-    size = 100
-    while size > 10:
-        f = ImageFont.truetype(fpath, size)
-        d0 = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
-        bb = d0.textbbox((0, 0), line, font=f)
-        if (bb[2] - bb[0]) <= target_w:
+    # 2026-11-12 用户：不再走 ASS/libass —— libass 按字体自身度量缩放，会把
+    # Great Vibes 压到 Cormorant 约 1/8（补偿系数治标不治本）。改为与
+    # Beat-Synced Showcase 完全相同的 PIL 文字层（core.textlayer）：全站唯一
+    # 字号 + 折行规则，任何字体都一样、长文案自动换行、每个单词字号一致。
+    from core import textlayer as _tl
+    layer = _tl.render(line, w, h, _fonts.ttf(font) or _fonts.ttf(None))
+    png_path = os.path.join(work_dir, "cap.png")
+    layer.save(png_path)
+    # 显式映射输出流：否则 ffmpeg 自动选流会把循环 PNG 也算进去。
+    # 内存紧张（页面文件不足）时 x264 的 lookahead 缓冲会 malloc 失败，
+    # 此时自动降一档 preset 重试；crf 20 不变，画质一致、只是体积略大。
+    head = [FF, "-y", "-i", video_in,
+            "-loop", "1", "-framerate", ("%g" % (fps or 30)), "-i", png_path,
+            "-filter_complex",
+            "[1:v]format=rgba[wm];[0:v][wm]"
+            "overlay=0:0:shortest=1,format=yuv420p[out]",
+            "-map", "[out]", "-map", "0:a?"]
+    tail = ["-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-c:a", "copy", "-movflags", "+faststart", out_path]
+    for preset in ("medium", "veryfast"):
+        try:
+            _run(head + ["-preset", preset] + tail)
             break
-        size -= 2
-    # 2026-11-12 用户：花体（Great Vibes）字太小，要和方体差不多大。
-    # libass 按字体自身度量缩放，同一 Fontsize 下 Great Vibes 的可见字只有
-    # 方体约 1/8；这里按字体补偿（core.fonts.ass_scale），仅作用于 ASS 烧录路径。
-    # PIL 直绘（fastcut / cinematic）不经过 libass，不补偿，保持原观感。
-    size = min(_fonts.ASS_SIZE_MAX, int(round(size * _fonts.ass_scale(font))))
-    write_ass(ass_path, [(line, 0.0, vdur)], w, h, pos=sub_pos, size=size,
-              fontname=_fonts.ass_family(font), bold=fb, italic=fi,
-              style="Cap")
-    esc = ass_path.replace("\\", "/").replace(":", "\\:")
-    fdir = _fonts.FONT_DIR.replace("\\", "/").replace(":", "\\:")
-    _run([FF, "-y", "-i", video_in,
-          "-vf", "subtitles='%s':fontsdir='%s'" % (esc, fdir),
-          "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
-          "-c:a", "copy", "-movflags", "+faststart", out_path])
+        except RuntimeError:
+            if preset == "veryfast":
+                raise
     if progress:
         progress(100, 100, "Done")
     return {"output": out_path, "line": line, "video_dur": round(vdur, 2)}
