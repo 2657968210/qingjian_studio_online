@@ -721,15 +721,18 @@ def draft_caption_line(cfg, srcs, sheet_path=None, timeout=60):
 
 
 def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
-                  font=None):
+                  font=None, wide=True):
     """把一行产品介绍文字全程烧在画面上（captions 开、voiceover 关时用）。
 
     2026-11-12 定稿：文字层由 core.textlayer.render() 生成，与 Beat-Synced
     Showcase (fast_cut) **同一个函数、同一个字号数值、同一套折行规则**——
-    纯白、无底板、单行优先按 62% 屏宽自适应（上限 100）、长文案最多 3 行
-    自动折行、文字块垂直居中 44% 屏高。不再经 ASS/libass，任何字体（含
+    纯白、无底板、单行优先按 62% 屏宽自适应（上限 100）、长文案最多 4 行
+    自动折行、文字块垂直居中 44% 屏高。wide 预设（5 个指定模版）行宽
+    0.78 屏宽、字号 +2 档、整词折行。不再经 ASS/libass，任何字体（含
     Great Vibes）都不会被字体度量压小。
     font: 客户自选字体键（core.fonts.ttf → 随包 static/fonts/*.ttf）。
+    wide: 5 个指定模版（2026-11-13）→ 行宽 0.78W、字号 +2 档、整词折行。
+          本函数只被这 5 个模版的字幕后处理调用，故默认 True。
     sub_pos: 保留兼容旧调用；Cap 文字一律 44% 屏高，与 Beat-Synced 对齐。
     视频流重编码（PNG overlay），音频流 copy；不改原文件。
     """
@@ -749,7 +752,7 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
     # Beat-Synced Showcase 完全相同的 PIL 文字层（core.textlayer）：全站唯一
     # 字号 + 折行规则，任何字体都一样、长文案自动换行、每个单词字号一致。
     from core import textlayer as _tl
-    layer = _tl.render(line, w, h, _fonts.ttf(font) or _fonts.ttf(None))
+    layer = _tl.render(line, w, h, _fonts.ttf(font) or _fonts.ttf(None), wide=wide)
     png_path = os.path.join(work_dir, "cap.png")
     layer.save(png_path)
     # 显式映射输出流：否则 ffmpeg 自动选流会把循环 PNG 也算进去。

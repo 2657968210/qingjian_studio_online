@@ -316,7 +316,9 @@ def render_cinematic(images, out_path, ratio="9x16", fps=30,
     if show_text:
         from core import fonts as _fonts
         cap = (text or "").strip() or CAPTION_DEFAULT
-        txt_rgb, txt_a = _build_text_overlay(cap, W, H, font_path=_fonts.ttf(font))
+        # 2026-11-13 用户：Cinematic Showcase 文字区放宽到红框宽度、字号 +2 档。
+        txt_rgb, txt_a = _build_text_overlay(
+            cap, W, H, font_path=_fonts.ttf(font), wide=True)
 
     if progress:
         progress(12, 100, "Rendering")

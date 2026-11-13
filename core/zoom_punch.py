@@ -77,7 +77,11 @@ TRANSITION_SEQUENCE = (
 
 # 标题（参考片原文）
 DEFAULT_TITLE = "2027 New Collection \u00b7 Laser cut invites"
-TITLE_W_RATIO = 0.70     # 每行白条宽度上限（占屏宽）；超出自动折行，不再缩成小字
+# 2026-11-13 用户：文字区放宽到红框宽度（0.78 画宽），字号加大 2 个字号，
+# 一行放不下按整词换行，每个单词完整在一行（超长词也不拆字符）。
+TITLE_W_RATIO = 0.78     # 白条宽度上限（占屏宽）= 截图红框实测 395/505
+TITLE_SIZE_BOOST = 4     # 2 个字号 × 2px
+TITLE_HARD_RATIO = 0.94  # 整词独占一行时的绝对上限（不出画）
 TITLE_MIN_SIZE_RATIO = 0.040  # 行数仍超上限时允许的最小字号（占屏高）
 TITLE_MAX_LINES = 4      # 标题最多行数（长句不盖满画面）
 TITLE_MAX_SEGMENTS = 4   # 显式分隔符（换行/·/ - ）最多段数
@@ -432,20 +436,9 @@ def _wrap_text(text, font, max_w, draw):
             lines.append(cur)
         return lines or [""]
 
-    tokens = []
-    for wd in text.split():
-        if width(wd) <= max_w:
-            tokens.append(wd)
-        else:
-            cur = ""
-            for ch in wd:
-                if cur and width(cur + ch) > max_w:
-                    tokens.append(cur)
-                    cur = ch
-                else:
-                    cur += ch
-            if cur:
-                tokens.append(cur)
+    # 2026-11-13 用户：每个单词完整在一行 —— 超长单词不按字符拆，
+    # 独占一行；若该行仍过宽，由 _build_title_overlay 统一缩字号。
+    tokens = [wd for wd in text.split()]
     lines, cur = [], ""
     for tk in tokens:
         trial = (cur + " " + tk) if cur else tk
@@ -479,7 +472,7 @@ def _build_title_overlay(text, W, H, font_path=None):
     # 按起始字号折行，行数超上限才适度缩字号（有下限），绝不缩成看不清的小字。
     pad_x = int(W * TITLE_BAR_PADX)
     max_w = max(80, int(W * TITLE_W_RATIO) - 2 * pad_x)
-    size0 = int(H * 0.052)
+    size0 = int(H * 0.052) + TITLE_SIZE_BOOST
     size_min = max(12, int(H * TITLE_MIN_SIZE_RATIO))
 
     def _seg_w(seg, font):
@@ -507,6 +500,16 @@ def _build_title_overlay(text, W, H, font_path=None):
             if len(lines) <= TITLE_MAX_LINES or size <= max(12, int(H * 0.030)):
                 break
             size -= 2
+        lines = lines[:TITLE_MAX_LINES]
+    # 2026-11-13：整词独占行若超过画面 94%，整句统一缩字号（不断词）。
+    hard_w = int(W * TITLE_HARD_RATIO)
+    while size > size_min and any(
+            _seg_w(ln, ImageFont.truetype(fpath, size)) > hard_w for ln in lines):
+        size -= 2
+        fw = ImageFont.truetype(fpath, size)
+        lines = []
+        for seg in segments:
+            lines.extend(_wrap_text(seg, fw, max_w, d))
         lines = lines[:TITLE_MAX_LINES]
     f = ImageFont.truetype(fpath, size)
     fonts = [(ln, f, d.textbbox((0, 0), ln, font=f)) for ln in lines]

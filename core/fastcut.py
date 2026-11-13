@@ -80,7 +80,7 @@ def _imread_bgr(p):
 # ---------------------------------------------------------------------------
 # 字幕 overlay（一次生成 RGBA，PIL；斜体衬线白字、无阴影，照搬参考模版）
 # ---------------------------------------------------------------------------
-def _build_text_overlay(text, W, H, font_path=None):
+def _build_text_overlay(text, W, H, font_path=None, wide=False):
     """返回 (rgb, alpha) 两个 HxW 张量（BGR 空间，与画面同构便于叠加）。
 
     font_path: 客户自选字体（2026-10-26 core.fonts 注册表）；None = 斜体 CG 默认。
@@ -91,7 +91,7 @@ def _build_text_overlay(text, W, H, font_path=None):
     # 2026-11-12：改用全站唯一文字层（core.textlayer），与 captions 后处理
     # 共用字号/折行规则；短句单行定位与旧版逐像素一致，长句新增自动换行。
     from core import textlayer
-    layer = textlayer.render(text, W, H, font_path or ITALIC)
+    layer = textlayer.render(text, W, H, font_path or ITALIC, wide=wide)
     if layer is None:
         return np.zeros((H, W, 3), np.float32), np.zeros((H, W, 1), np.float32)
     arr = np.array(layer)   # RGBA uint8
