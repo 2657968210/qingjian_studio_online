@@ -17,8 +17,10 @@ Beat-Synced Showcase (fast_cut) 一致，无论选哪种字体都一样，长文
 
 2026-11-13 用户定稿（5 个模版：Wedding Signage & Decor / Wedding Color
 Inspiration / Cinematic Showcase / Product Spotlight / Dynamic Collection
-Showcase）：wide=True 时文字区放宽到红框实测的 0.78 画宽，字号在旧基准上
-加大 2 个字号（+4px），按整词折行、超长单词也不拆字符（独占一行）。
+Showcase）：wide=True 时**文字本身铺满红框宽度**（≈0.78 画宽），从旧基准
++2 档起步向上放大（上限 WIDE_MAX_SIZE），按整词折行、超长单词也不拆字符
+（独占一行）；行数/块高/出画约束内取最大字号。同日复核：首版只放宽折行
+上限 +4px 观感为零，改为铺满式拟合。
 其它模版仍走默认 0.62 画宽，保持与 Beat-Synced 一致。
 """
 import os
@@ -33,7 +35,7 @@ SIZE_STEP = 2           # 1 个字号 = 2px（历史算法每次 -2）
 SINGLE_MIN = 40         # 单行拟合的最低字号，再小就改用折行
 MAX_LINES = 4
 WIDE_RATIO = 0.78       # wide 预设行宽 = 用户红框实测值（395/505 画宽）
-WIDE_SIZE_BOOST = 2 * SIZE_STEP   # 「加大 2 个字号」= +4px
+WIDE_MAX_SIZE = 120     # 铺满式拟合的字号硬上限（防超短句放大失控）
 HARD_RATIO = 0.94       # 整词独占一行时的绝对上限（留边距、不出画）
 LINE_GAP = 1.18
 
@@ -129,8 +131,8 @@ def layout(text, W, H, font_path=None, wide=False):
     同一个 size 数值 —— 这是「无论什么字体字号都一样」的保证；目标字体
     仅按自己的宽度决定折行，不单独缩放字号。
 
-    wide=True（5 个指定模版）：行宽 0.78W、字号 = 旧基准 + 2 个字号，
-    按整词折行；若行数/高度/整词宽度超限则**整句统一**缩小字号，
+    wide=True（5 个指定模版）：铺满式 —— 文字宽度放大到 ≈0.78W（用户红框），
+    整词折行；若行数/高度/整词宽度超限则**整句统一**缩小字号，
     任何情况下都不在单词中间断开。
     """
     text = (text or "").strip()
@@ -141,18 +143,41 @@ def layout(text, W, H, font_path=None, wide=False):
     fpath = font_path or REF_FONT
 
     if wide:
-        size = _legacy_size(d, text, W, H) + WIDE_SIZE_BOOST
+        # 2026-11-13 用户复核截图：+4px 观感为零，「红框宽度」指的是
+        # **文字本身要铺到的宽度**，不是折行上限。改为铺满式拟合：
+        # 以旧基准 +2 档为起点、按 0.78W 折行得到行数 k，再向上放大，
+        # 只要「行数不变 + 块高 ≤30% 屏高 + 每行 ≤0.94W」就继续放大，
+        # 行数将要增加（多折一行）或约束超限时停 —— 最终最长行 ≈0.78
+        # 画宽（红框）。铺满优先于多行：能一行铺满绝不折成两行小字。
+        # 仍按整词折行，超长单词整句缩回，绝不拆字符。
+        # 字号随所选字体自适应（手写体 Great Vibes 视觉字面小，
+        # 同宽度下字号数值更大）；非 wide 模版仍保持全站唯一字号。
+        base = _legacy_size(d, text, W, H) + 2 * SIZE_STEP
         max_w = max(1, int(W * WIDE_RATIO))
         hard_w = int(W * HARD_RATIO)
-        while True:
+        size = base
+        k = len(_wrap(d, text, ImageFont.truetype(fpath, size), max_w,
+                      keep_words=True))
+        while size < WIDE_MAX_SIZE:
+            s2 = size + SIZE_STEP
+            f2 = ImageFont.truetype(fpath, s2)
+            lines2 = _wrap(d, text, f2, max_w, keep_words=True)
+            lh2 = int(round(s2 * LINE_GAP))
+            if (len(lines2) > k
+                    or lh2 * len(lines2) > max_h
+                    or any(_width(d, ln, f2) > hard_w for ln in lines2)):
+                break
+            size = s2
+        target = ImageFont.truetype(fpath, size)
+        lines = _wrap(d, text, target, max_w, keep_words=True)
+        lh = int(round(size * LINE_GAP))
+        # 超长单词独占行超出画面硬上限 → 整句统一缩回（保持词完整）
+        while size > SIZE_MIN and any(
+                _width(d, ln, target) > hard_w for ln in lines):
+            size -= SIZE_STEP
             target = ImageFont.truetype(fpath, size)
             lines = _wrap(d, text, target, max_w, keep_words=True)
             lh = int(round(size * LINE_GAP))
-            ok = (len(lines) <= MAX_LINES and lh * len(lines) <= max_h and
-                  all(_width(d, ln, target) <= hard_w for ln in lines))
-            if ok or size <= SIZE_MIN:
-                break
-            size -= SIZE_STEP
         return lines, target, size, lh
 
     max_w = max(1, int(W * W_RATIO))

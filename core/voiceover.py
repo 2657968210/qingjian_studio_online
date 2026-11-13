@@ -727,11 +727,11 @@ def apply_caption(video_in, out_path, line, progress=None, sub_pos="upper",
     2026-11-12 定稿：文字层由 core.textlayer.render() 生成，与 Beat-Synced
     Showcase (fast_cut) **同一个函数、同一个字号数值、同一套折行规则**——
     纯白、无底板、单行优先按 62% 屏宽自适应（上限 100）、长文案最多 4 行
-    自动折行、文字块垂直居中 44% 屏高。wide 预设（5 个指定模版）行宽
-    0.78 屏宽、字号 +2 档、整词折行。不再经 ASS/libass，任何字体（含
-    Great Vibes）都不会被字体度量压小。
+    自动折行、文字块垂直居中 44% 屏高。wide 预设（5 个指定模版）铺满式：
+    文字宽度放大到 ≈0.78 屏宽（用户红框）、整词折行。不再经 ASS/libass，
+    任何字体（含 Great Vibes）都不会被字体度量压小。
     font: 客户自选字体键（core.fonts.ttf → 随包 static/fonts/*.ttf）。
-    wide: 5 个指定模版（2026-11-13）→ 行宽 0.78W、字号 +2 档、整词折行。
+    wide: 5 个指定模版（2026-11-13）→ 铺满 0.78W、整词折行。
           本函数只被这 5 个模版的字幕后处理调用，故默认 True。
     sub_pos: 保留兼容旧调用；Cap 文字一律 44% 屏高，与 Beat-Synced 对齐。
     视频流重编码（PNG overlay），音频流 copy；不改原文件。
