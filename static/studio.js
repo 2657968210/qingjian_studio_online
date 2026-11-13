@@ -229,7 +229,9 @@ async function loadTemplates() {
   // (nothing to filter). Two or more → the bar comes back on its own.
   const list = TPL_ALL.templates || [];
   const bar = document.querySelector(".tpl-bar");
+  const search = document.querySelector(".tpl-search");
   if (bar) bar.style.display = list.length <= 1 ? "none" : "";
+  if (search) search.style.display = list.length <= 1 ? "none" : "";
   if (list.length === 1 && (!ST.template || ST.template.id !== list[0].id)) {
     chooseTemplate(list[0].id);
   }

@@ -82,12 +82,14 @@
   <main class="main">
     <section class="card step" id="step1">
       <div class="eyebrow">01 / Choose template</div>
-      <h2>Choose Your Video Template</h2>
+      <!-- 2026-11-13 用户：标题与搜索框同一行（搜索框右上），分类 chips 单独一行。 -->
+      <div class="step-head">
+        <h2>Choose Your Video Template</h2>
+        <input class="tpl-search" id="tplSearch" type="search" placeholder="Search templates&hellip;" aria-label="Search templates">
+      </div>
       <p class="lede">Preview a template, then upload your product photos to create your video.</p>
 
-      <!-- 2026-11-12 用户：搜索框在上、分类 chips 在下（分类移到搜索框下面）。 -->
       <div class="tpl-bar">
-        <input class="tpl-search" id="tplSearch" type="search" placeholder="Search templates&hellip;" aria-label="Search templates">
         <div class="tpl-chips" id="tplChips"></div>
       </div>
 

@@ -621,6 +621,8 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
   .rail-item .sub { display: none; }
   .card { padding: 24px 20px; }
   .step h2 { font-size: 25px; }
+  .step-head { gap: 12px; }
+  .tpl-search { width: 100%; margin-left: 0; }
   .photos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   /* 窄屏：多模版时缩到两列以内；单模版保持「封面 + 说明」横排（上面 .single 规则） */
   .tpl-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
@@ -630,8 +632,11 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
 /* ============================================================================
    STEP 1 · 模版库
    ========================================================================== */
-/* 2026-11-12 用户：搜索框独占第一行（右对齐），分类 chips 在其下方整行。 */
-.tpl-bar { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin: 4px 0 22px; }
+/* 2026-11-13 用户：标题与搜索框同一行（右上），分类 chips 单独一行。 */
+.step-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.step-head h2 { margin-bottom: 0; }
+.step-head + .lede { margin-top: 12px; }
+.tpl-bar { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin: 0 0 22px; }
 .tpl-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip {
   font: inherit; font-size: 13.5px; color: var(--ink-2);
@@ -644,7 +649,7 @@ select:focus, input:focus { outline: 2px solid var(--accent-tint); border-color:
   font: inherit; font-size: 14px; color: var(--ink);
   background: var(--surface); border: 1px solid var(--line-strong);
   border-radius: 999px; padding: 8px 16px;
-  width: min(100%, 260px); align-self: flex-end; margin-left: 0;
+  width: min(100%, 260px); align-self: center; margin-left: auto;
 }
 .tpl-search:focus { outline: 2px solid var(--accent-tint); border-color: var(--accent); }
 

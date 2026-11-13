@@ -6,7 +6,7 @@
     },
     {
       "id": "products",
-      "name": "Products"
+      "name": "Product Showcase"
     },
     {
       "id": "palettes",
@@ -18,11 +18,7 @@
     },
     {
       "id": "new",
-      "name": "New Arrivals"
-    },
-    {
-      "id": "top",
-      "name": "Top Picks"
+      "name": "New & Featured"
     }
   ],
   "styles": [],
@@ -183,7 +179,7 @@
     {
       "id": "top5",
       "name": "Top Picks Countdown",
-      "category": "top",
+      "category": "new",
       "pipeline": "top5",
       "cover": "/static/templates/tpl_top5.mp4",
       "poster": "/static/templates/tpl_top5.jpg",
