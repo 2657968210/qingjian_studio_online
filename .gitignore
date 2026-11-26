@@ -25,6 +25,7 @@ make_customer_link.py
 _ledger/
 data/
 _bak_*.py
+_bak_*/
 _patch_*.py
 _make_fullpack.py
 *.png

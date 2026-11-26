@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>运营记录 · Studio</title>
+<style>
+  :root{
+    --ink:#221f1b;--ink-2:#6b655c;--line:#e7e0d4;--line-strong:#ded7ca;
+    --surface:#fff;--page:#faf8f4;--accent:#4a5746;--accent-soft:#eef1ec;
+    --warn:#b4441f;--ok:#2f7a4f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+    font:500 14px/1.6 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+  header.top{display:none;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:16px 24px;background:var(--surface);border-bottom:1px solid var(--line)}
+  header.top h1{font-size:17px;font-weight:600;margin:0}
+  header.top .sp{flex:1}
+  input{padding:7px 10px;border:1px solid var(--line-strong);border-radius:8px;
+    background:var(--surface);color:var(--ink);font:500 13px Inter,system-ui,sans-serif}
+  button{padding:7px 14px;border:1px solid var(--accent);border-radius:8px;
+    background:var(--accent);color:#fff;cursor:pointer;font:500 13px Inter,system-ui,sans-serif}
+  button.ghost{background:transparent;color:var(--accent)}
+  /* ---- 登录卡片 ---- */
+  #loginWrap{display:none;min-height:100vh;align-items:center;justify-content:center;padding:24px}
+  .card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:32px 30px;box-shadow:0 6px 24px rgba(34,31,27,.06)}
+  .card h1{font-size:19px;font-weight:600;margin:0 0 6px;text-align:center}
+  .card .sub{color:var(--ink-2);font-size:12.5px;text-align:center;margin-bottom:22px}
+  .field{margin-bottom:14px}
+  .field label{display:block;color:var(--ink-2);font-size:12.5px;margin-bottom:5px}
+  .field input{width:100%;padding:10px 12px;font-size:14px}
+  .card button{width:100%;padding:11px;font-size:14px;margin-top:6px}
+  .msg{padding:11px 14px;border-radius:10px;background:#fbece7;color:var(--warn);
+    margin:14px 0 4px;font-size:13px;display:none}
+  /* ---- 记录区 ---- */
+  main{display:none;max-width:1120px;margin:0 auto;padding:24px}
+  .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .bar .stat{color:var(--ink-2);font-size:13px}
+  .bar .stat b{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;background:var(--surface);
+    border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{background:var(--accent-soft);color:var(--ink);font-size:12.5px;font-weight:600;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .cid{font-family:ui-monospace,monospace;font-size:12.5px}
+  .tpl{font-weight:600}
+  .pts{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--warn);color:#fff;font-size:12px}
+  .vid{display:flex;align-items:center;gap:8px}
+  .vid video{width:132px;height:76px;background:#000;border-radius:6px;object-fit:cover}
+  .vid a{color:var(--accent);text-decoration:none;font-size:12.5px;white-space:nowrap}
+  .vid a:hover{text-decoration:underline}
+  .none{color:var(--ink-2);font-size:12.5px;font-style:italic}
+  .lmsg{padding:14px 16px;border-radius:10px;background:var(--accent-soft);
+    color:var(--accent);margin-bottom:16px;font-size:13px;display:none}
+  .lmsg.err{background:#fbece7;color:var(--warn)}
+  .foot{color:var(--ink-2);font-size:12px;margin-top:16px}
+</style>
+</head>
+<body>
+
+<!-- 登录卡片 -->
+<div id="loginWrap">
+  <div class="card">
+    <h1>运营记录</h1>
+    <div class="sub">请输入运营账号查看全部客户使用记录</div>
+    <div class="field">
+      <label for="em">账号（邮箱）</label>
+      <input id="em" type="email" autocomplete="username" placeholder="name@example.com">
+    </div>
+    <div class="field">
+      <label for="pw">密码</label>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <button id="loginBtn">登 录</button>
+    <div id="lmsg" class="msg"></div>
+  </div>
+</div>
+
+<!-- 记录区 -->
+<header class="top" id="topbar">
+  <h1>运营记录（全量）</h1>
+  <div class="sp"></div>
+  <input id="cidFilter" type="text" placeholder="客户ID过滤，留空=全部" size="22">
+  <button id="refreshBtn">刷新</button>
+  <button id="logoutBtn" class="ghost">退出登录</button>
+</header>
+<main id="main">
+  <div id="msg" class="lmsg"></div>
+  <div class="bar">
+    <span class="stat">共 <b id="cnt">0</b> 条生成记录</span>
+    <span class="stat">每段消耗 <b>20 点</b></span>
+    <span class="stat">（运营方全量视图）</span>
+  </div>
+  <table>
+    <thead><tr>
+      <th>生成时间</th><th>客户</th><th>模板</th><th>点数</th><th>成片</th>
+    </tr></thead>
+    <tbody id="rows"><tr><td colspan="5" class="none">加载中…</td></tr></tbody>
+  </table>
+  <div class="foot">成片文件保存在服务器，客户不下载也会保留。点击画面可预览，点「下载」另存。本页面可分享给运营人员，登录后 7 天内免重复输入。</div>
+</main>
+
+<script>
+(function(){
+  var HOST = location.origin;
+  var loginWrap = document.getElementById("loginWrap");
+  var main = document.getElementById("main");
+  var topbar = document.getElementById("topbar");
+  var em = document.getElementById("em");
+  var pw = document.getElementById("pw");
+  var lmsg = document.getElementById("lmsg");
+  var cidFilter = document.getElementById("cidFilter");
+  var rows = document.getElementById("rows");
+  var msg = document.getElementById("msg");
+  var cnt = document.getElementById("cnt");
+
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function fmt(ts){
+    var d = new Date(ts * 1000);
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+
+      String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+
+      ":"+String(d.getMinutes()).padStart(2,"0");
+  }
+  function showLogin(){ loginWrap.style.display = "flex"; main.style.display = "none"; topbar.style.display = "none"; }
+  function showData(){ loginWrap.style.display = "none"; main.style.display = "block"; topbar.style.display = "flex"; }
+  function say(text, isErr){
+    msg.textContent = text;
+    msg.className = "lmsg" + (isErr ? " err" : "");
+    msg.style.display = "block";
+  }
+  function sayL(text){
+    lmsg.textContent = text;
+    lmsg.style.display = "block";
+  }
+
+  function load(){
+    msg.style.display = "none";
+    var url = HOST + "/api/records";
+    var cid = cidFilter.value.trim();
+    if (cid) url += "?cid=" + encodeURIComponent(cid);
+    fetch(url, {method:"GET", credentials:"same-origin"})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(res){
+        if (!res.ok || res.j.error){
+          if (res.j && (res.j.error === "session_expired")){
+            showLogin();
+          } else {
+            say("读取失败：" + (res.j.error || ("HTTP " + res.status)), true);
+            rows.innerHTML = '<tr><td colspan="5" class="none">无数据</td></tr>';
+          }
+          return;
+        }
+        if (res.j.scope !== "all"){ showLogin(); return; }
+        showData();
+        var list = res.j.records || [];
+        cnt.textContent = list.length;
+        if (!list.length){
+          rows.innerHTML = '<tr><td colspan="5" class="none">暂无生成记录</td></tr>';
+          return;
+        }
+        rows.innerHTML = list.map(function(it){
+          var vid = "";
+          if (it.video){
+            var u = it.video;
+            vid = '<div class="vid"><video controls preload="metadata" src="'+esc(u)+'"></video>'+
+                  '<a href="'+esc(u)+'?dl='+encodeURIComponent((it.template_label||"video")+".mp4")+'" download>下载</a></div>';
+          } else {
+            vid = '<span class="none">成片生成中 / 未关联</span>';
+          }
+          return '<tr>'+
+            '<td>'+fmt(it.created_ts)+'</td>'+
+            '<td><span class="cid">'+esc(it.email)+'</span><br><span class="none">'+esc(it.customer_id)+'</span></td>'+
+            '<td><span class="tpl">'+esc(it.template_label||it.template)+'</span></td>'+
+            '<td><span class="pts">-'+esc(it.points)+'</span></td>'+
+            '<td>'+vid+'</td>'+
+          '</tr>';
+        }).join("");
+      })
+      .catch(function(e){
+        // 网络层失败也可能是因为会话过期后的页面直开，尝试进入登录态
+        say("网络错误：" + e, true);
+      });
+  }
+
+  function doLogin(){
+    lmsg.style.display = "none";
+    var e = em.value.trim(), p = pw.value;
+    if (!e || !p){ sayL("请输入账号和密码。"); return; }
+    fetch(HOST + "/api/ops/login", {
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({email:e, password:p})
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(res){
+        if (!res.ok || res.j.error){ sayL(res.j.error || "登录失败，请重试。"); return; }
+        pw.value = "";
+        load();
+      })
+      .catch(function(e2){ sayL("网络错误：" + e2); });
+  }
+
+  document.getElementById("loginBtn").addEventListener("click", doLogin);
+  pw.addEventListener("keydown", function(e){ if(e.key==="Enter") doLogin(); });
+  em.addEventListener("keydown", function(e){ if(e.key==="Enter") doLogin(); });
+  document.getElementById("refreshBtn").addEventListener("click", load);
+  cidFilter.addEventListener("keydown", function(e){ if(e.key==="Enter") load(); });
+  document.getElementById("logoutBtn").addEventListener("click", function(){
+    fetch(HOST + "/api/logout", {method:"POST", credentials:"same-origin"})
+      .then(function(){ showLogin(); })
+      .catch(function(){ showLogin(); });
+  });
+
+  showLogin();
+  load(); // 已有有效会话则直接进入数据视图
+})();
+</script>
+</body>
+</html>

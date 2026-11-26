@@ -78,6 +78,22 @@ ALLOW_PLAIN_ID = bool(_ACCOUNT_CFG.get("allow_plain_id"))
 INITIAL_POINTS = int(_ACCOUNT_CFG.get("initial_points") or 200)
 POINTS_PER_VIDEO = int(_ACCOUNT_CFG.get("points_per_video") or 20)
 
+# ---- 运营记录页（/static/ops.html）独立账号 ----
+# 只存 pbkdf2 哈希，明文口令永不落盘（不入代码/config/git/日志）。
+# 可用 config.account.ops_email / ops_password_salt / ops_password_hash 覆盖（轮换口令不用改代码）。
+OPS_ACCOUNT_EMAIL = str(_ACCOUNT_CFG.get("ops_email") or "emily25411@yahoo.com").strip().lower()
+OPS_PASSWORD_SALT = str(_ACCOUNT_CFG.get("ops_password_salt") or "24b421e757310a18152a480c0ec2b80a")
+OPS_PASSWORD_HASH = str(_ACCOUNT_CFG.get("ops_password_hash") or "c3387c9e116e8467031a2e675aebef828e184bec72ef8d6bf6597b59cd277411")
+
+
+def _ops_password_ok(pwd):
+    try:
+        h = hashlib.pbkdf2_hmac("sha256", str(pwd).encode("utf-8"),
+                                bytes.fromhex(OPS_PASSWORD_SALT), 200000)
+        return hmac.compare_digest(h.hex(), OPS_PASSWORD_HASH)
+    except Exception:
+        return False
+
 # ---- 远程客户 email/name 映射：真实 JP 账号不在本地夹具里，
 # 登录成功时记录 cid->身份，供 /api/me 与 /api/records 显示。
 # 只存邮箱与姓名等展示信息，绝不存密码。
@@ -1638,7 +1654,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._establish_identity()
             return True
         # 登录/登出/查看自身身份：恒放行，但先识别身份供处理器判断
-        if p in ("/api/login", "/api/logout", "/api/me"):
+        if p in ("/api/login", "/api/logout", "/api/me", "/api/ops/login"):
             self._establish_identity()
             return True
         # 受保护接口：必须账号会话或 admin
@@ -2094,6 +2110,29 @@ class Handler(SimpleHTTPRequestHandler):
         self._quota_hold = getattr(self, "_quota_hold", None)
         try:
             # ---- 账号系统接口（整合副本） ----
+            # ---- 运营记录页登录：邮箱 + 密码（pbkdf2 校验），通过即签发管理员会话 ----
+            if p == "/api/ops/login":
+                body = self.read_body_json()
+                email = str(body.get("email") or "").strip().lower()
+                pwd = str(body.get("password") or "")
+                ok_e = hmac.compare_digest(email, OPS_ACCOUNT_EMAIL)
+                ok_p = _ops_password_ok(pwd)
+                if not (ok_e and ok_p):
+                    time.sleep(0.4)  # 拖慢暴力尝试
+                    return self.send_json({"error": "邮箱或密码错误"}, 401)
+                tok = sign_account_token({"admin": True, "ops": True,
+                                          "exp": int(time.time()) + 86400 * 7})
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Set-Cookie",
+                                 "acct_sid=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax"
+                                 % (tok, 7 * 86400))
+                body_out = json.dumps({"ok": True}).encode("utf-8")
+                self.send_header("Content-Length", str(len(body_out)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body_out)
+                return
             if p == "/api/login":
                 body = self.read_body_json()
                 # ---- 独立后台入口：配置 account.admin_password 后，
