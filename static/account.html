@@ -33,7 +33,14 @@
   tr:last-child td{border-bottom:none}
   .pts{display:inline-block;padding:2px 9px;border-radius:999px;background:#F4E4DE;color:var(--warn);font:600 12px Inter,sans-serif}
   .vid{display:flex;align-items:center;gap:10px}
-  .vid video{width:118px;height:68px;background:#000;border-radius:4px;object-fit:cover}
+  .vid video{width:84px;height:112px;background:#000;border-radius:4px;object-fit:cover;cursor:pointer}
+  .vmodal{position:fixed;inset:0;background:rgba(20,17,14,.74);display:none;align-items:center;justify-content:center;z-index:60}
+  .vmodal.open{display:flex}
+  .vmodal .box{position:relative;width:min(480px,88vw)}
+  .vmodal video{display:block;width:100%;max-height:76vh;background:#000;border-radius:6px}
+  .vmodal .x{position:absolute;top:-36px;right:0;background:none;border:none;cursor:pointer;
+    color:#F7F4EE;font:400 26px/1 Inter,sans-serif;padding:4px 8px}
+  .vmodal .x:hover{opacity:.75}
   .vid a{color:var(--sage);font-weight:600;text-decoration:none;white-space:nowrap;font-size:12.5px}
   .vid a:hover{text-decoration:underline}
   .none{color:var(--ink2);font-style:italic}
@@ -80,6 +87,13 @@
     </table>
   </div>
 </main>
+
+<div id="vmodal" class="vmodal">
+  <div class="box">
+    <button type="button" class="x" id="vclose" aria-label="Close">&times;</button>
+    <video id="mvid" controls playsinline preload="metadata"></video>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -135,7 +149,7 @@
       }
       rows.innerHTML = list.map(function (it) {
         var vid = it.video
-          ? '<div class="vid"><video controls preload="metadata" src="' + esc(it.video) + '"></video>' +
+          ? '<div class="vid"><video class="vthumb" preload="metadata" muted src="' + esc(it.video) + '#t=0.5"></video>' +
             '<a href="' + esc(it.video) + '?dl=' + encodeURIComponent((it.template_label || "video") + ".mp4") + '" download>Download</a></div>'
           : '<span class="none">Not available</span>';
         return '<tr>' +
@@ -149,6 +163,32 @@
     .catch(function () {
       gate.hidden = false;
     });
+
+  // 视频弹窗预览（非全屏）：点击缩略图打开，点遮罩/× /Esc 关闭
+  var modal = document.getElementById("vmodal");
+  var mvid = document.getElementById("mvid");
+  function openV(src) {
+    if (!src) return;
+    mvid.src = src;
+    modal.classList.add("open");
+    var p = mvid.play(); if (p && p.catch) p.catch(function () {});
+  }
+  function closeV() {
+    mvid.pause();
+    mvid.removeAttribute("src"); mvid.load();
+    modal.classList.remove("open");
+  }
+  rows.addEventListener("click", function (e) {
+    var t = e.target;
+    if (t && t.tagName === "VIDEO" && t.className.indexOf("vthumb") !== -1) {
+      openV((t.getAttribute("src") || "").split("#")[0]);
+    }
+  });
+  document.getElementById("vclose").addEventListener("click", closeV);
+  modal.addEventListener("click", function (e) { if (e.target === modal) closeV(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && modal.classList.contains("open")) closeV();
+  });
 })();
 </script>
 </body>
