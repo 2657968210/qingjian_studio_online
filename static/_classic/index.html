@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invitation Promo Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">I</span>
+    <div>
+      <h1>Invitation Promo Studio</h1>
+      <p class="sub">Upload &rarr; Element assets &rarr; Video &rarr; Compose</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <select id="projectSelect" title="Select a project"></select>
+    <button class="btn btn-primary" id="btnNewProject">New Project</button>
+    <button class="btn btn-ghost" id="btnSettings">Settings</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- Step navigation (4 steps) -->
+  <nav class="stepper" id="stepper">
+    <div class="step" data-step="1"><span class="num">1</span><div><b>Upload Photos</b><i>Product photography</i></div></div>
+    <div class="step" data-step="2"><span class="num">2</span><div><b>AI Element Assets</b><i>Optional &middot; split &amp; restore</i></div></div>
+    <div class="step" data-step="3"><span class="num">3</span><div><b>Video Generation</b><i>Camera moves + AI handheld</i></div></div>
+    <div class="step" data-step="4"><span class="num">4</span><div><b>Compose &amp; Export</b><i>Stitch + royalty-free BGM</i></div></div>
+  </nav>
+
+  <!-- Workspace -->
+  <section class="workspace">
+
+    <!-- Step 1 · Upload -->
+    <div class="panel" data-panel="1">
+      <h2>Upload Product Photos</h2>
+      <p class="hint">Upload finished product shots or mockups (multi-select supported, JPG/PNG, long edge &ge; 1500&nbsp;px recommended). Next, step 2 (<b>optional</b>) can split the scene into individual paper components and generate clean reference assets. Skip it if you don't need it — the pipeline will fall back to your original uploads.</p>
+      <div class="empty-state" id="noProject" hidden>
+        <b>No project in this session yet</b>
+        <p class="hint">Every page load or refresh starts from a clean slate — the previous project and step are not restored, and no browsing history is kept.<br>
+          Past projects and assets remain safely on disk and can be loaded temporarily when needed.</p>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnStartProject" type="button">New Project</button>
+          <button class="btn btn-ghost" id="btnLoadHistory" type="button">Load past project (this session only)</button>
+        </div>
+      </div>
+      <div class="dropzone" id="dzUpload">
+        <input type="file" id="fileUpload" multiple accept="image/*" hidden>
+        <b>Click or drag images here to upload</b>
+        <span>Batch upload supported. If no project exists yet, one is created automatically for this session.</span>
+      </div>
+      <div class="thumb-grid" id="uploadGrid"></div>
+      <div class="panel-actions">
+        <button class="btn btn-primary" data-goto="2">Next: AI Element Assets (optional) &rarr;</button>
+      </div>
+    </div>
+
+    <!-- Step 2 · AI element assets (optional) -->
+    <div class="panel" data-panel="2">
+      <h2>AI Element Assets <span class="tag">Optional &middot; split &rarr; restore</span></h2>
+      <p class="hint"><b>This whole step can be skipped</b> — you don't have to generate anything. Step 3 will automatically fall back to your step&nbsp;1 uploads. Generating is useful when you want cleaner assets (no hands, no clutter, no watermarks), consistent lighting, or a restaged scene.<br>
+        Working from your uploaded product shots, the AI first <b>identifies and splits</b> the individual paper components in the frame (main invitation, RSVP, details, menu, envelope or outer shell, liner, wax seal&hellip;), then outputs <b>restored reference assets</b> in the selected mode. Results are added to the library automatically and become the <b>default source</b> for camera-move inputs and AI video first / last frames; your original uploads drop to fallback.<br>
+        <b class="red">Fidelity limit: AI redrawing does not guarantee character-by-character accuracy on small type (drift has been measured). For text-dense cards (main invitation, RSVP), trust the original photo or the design source file — treat AI output as atmosphere reference, scene reconstruction, and overall composition.</b></p>
+
+      <div class="form-row col">
+        <label>Processing mode</label>
+        <div class="radio-row" id="elMode"></div>
+        <div class="hint" id="elModeNote"></div>
+      </div>
+      <div class="form-row">
+        <label>Output scope</label>
+        <select id="elGran"></select>
+        <span class="hint" id="elGranNote"></span>
+      </div>
+      <div class="form-row">
+        <label>Reference</label>
+        <select id="elRef"></select>
+      </div>
+      <div class="hint" id="elRefNote"></div>
+      <div class="form-row">
+        <label>Quality</label><select id="elSize"></select>
+        <label style="margin-left:16px">Images</label><select id="elCount"></select>
+        <label style="margin-left:16px">Format</label>
+        <select id="elFmt"><option value="jpeg" selected>jpeg</option><option value="png">png (lossless, larger)</option></select>
+      </div>
+      <div class="banner ok" id="elArkState"></div>
+      <details class="adv">
+        <summary>Advanced: prompt &amp; extra requirements (official mode prompt by default)</summary>
+        <div class="form-row col">
+          <label style="display:flex;align-items:center;gap:10px">Prompt (official template, editable)
+            <button class="btn btn-mini" id="btnElReset" type="button">Reset to official prompt</button>
+          </label>
+          <textarea id="elPrompt" rows="11"></textarea>
+          <span class="hint">Switching mode or output scope swaps in the matching official prompt. Once you edit it by hand, it stops auto-replacing.<br>
+            <b>Prompt text is intentionally kept in Chinese</b> — these are the exact instructions sent to the Ark models and are locked by project convention.</span>
+        </div>
+        <div class="form-row col">
+          <label>Extra requirements (optional &middot; appended to the prompt)</label>
+          <textarea id="elExtra" rows="3" placeholder="e.g. Show the outer shell / liner / wax seal as one unit; do not split its interior panels into separate cards. Keep the seal and liner pattern detail. Use a clean white tabletop."></textarea>
+        </div>
+        <div class="form-row col">
+          <label>Shot / split list (optional &middot; describe this product's structure; also appended to the prompt)</label>
+          <textarea id="elShotList" rows="3" placeholder="e.g.&#10;1. Envelope shell (gold liner + wax seal) — show as one unit, emphasise the liner pattern&#10;2. Tri-fold insert — show as one unit, do not split into RSVP / reception panels&#10;3. Wax seal close-up"></textarea>
+        </div>
+      </details>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btnElGenerate">Generate Element Assets</button>
+        <button class="btn" id="btnElCopy">Copy prompt</button>
+      </div>
+      <div class="job-box" id="elJob"></div>
+
+      <h3>Reference asset library <span class="tag">AI output &middot; default downstream source</span></h3>
+      <div class="thumb-grid" id="elGrid"></div>
+
+      <details class="fold">
+        <summary>Fallback: local operators (no AI compute, no API quota)</summary>
+        <div class="fold-body">
+          <p class="hint">Use this only when no AI is configured, or when the source is already good enough. Local operators do arithmetic enhancement only (upscale, denoise, sharpen, white balance, contrast, crop) — <b>they do not split components and do not rebuild scenes</b>. Output joins the same reference / source candidate list.</p>
+          <div class="form-row">
+            <label>Asset</label><select id="procFile"></select>
+          </div>
+          <fieldset class="ops">
+            <legend>Local operators (free)</legend>
+            <label><input type="checkbox" value="upscale"> Upscale 2&times; (resolution too low)</label>
+            <label><input type="checkbox" value="denoise"> Denoise (noisy)</label>
+            <label><input type="checkbox" value="sharpen"> Sharpen (soft focus)</label>
+            <label><input type="checkbox" value="wb"> White balance (colour cast)</label>
+            <label><input type="checkbox" value="tone"> Auto contrast (washed out)</label>
+            <label><input type="checkbox" value="crop"> Crop (remove clutter at edges)
+              <span class="inline-inputs">Left<input type="number" id="cropX0" value="5">Top<input type="number" id="cropY0" value="5">Right<input type="number" id="cropX1" value="95">Bottom<input type="number" id="cropY1" value="95">%</span>
+            </label>
+          </fieldset>
+          <button class="btn" id="btnProcess">Run local processing</button>
+          <div id="procResult"></div>
+        </div>
+      </details>
+
+      <div class="panel-actions">
+        <button class="btn" data-goto="1">&larr; Back to upload</button>
+        <button class="btn btn-primary" data-goto="3">Assets ready &rarr; Video generation</button>
+        <button class="btn" data-goto="3">Skip &mdash; use original uploads &rarr;</button>
+      </div>
+    </div>
+
+    <!-- Step 3 · Video generation (camera moves + AI handheld, same screen) -->
+    <div class="panel" data-panel="3">
+      <h2>Video Generation <span class="tag">Camera moves + AI handheld</span></h2>
+      <p class="hint">Two output tracks load together on this step, and both flow into step 4 composition:<br>
+        <b>1. Camera moves</b> &mdash; 2.5D geometric displacement, zero AI compute, zero text distortion, fixed five-shot sequence.<br>
+        <b>2. AI segmented handheld</b> &mdash; the AI identifies every component in the set and orders them, then <b>generates one clip per component</b> (&ldquo;pick up &rarr; centre &rarr; micro-tilt &rarr; hold&rdquo;), stitched in order with a Hero ending. One clip per card gives the highest success rate and text stability.</p>
+
+      <!-- 1 · Camera moves -->
+      <section class="subblock">
+        <h3 class="block-hd">1 &middot; Camera moves &mdash; 2.5D geometric, no AI compute, fixed five-shot sequence</h3>
+        <p class="hint">Runs the <b>standard camera-move spec</b>: fixed five-shot sequence, slow / steady / even, hard cuts between shots, rendered and stitched into a single film in one pass. Pure geometric displacement means <b>zero text distortion</b>. Roughly 15&ndash;25 seconds of render time per second of footage &mdash; about 3&ndash;5 minutes for the 12.5&nbsp;s five-shot sequence.</p>
+        <div class="cm-grid" id="cmSeqFixed"></div>
+        <div class="form-row">
+          <label class="chk"><input type="checkbox" id="cmMulti">
+            <b>Multi-image sequence</b>: give every uploaded photo its own camera move and hard-cut them into one film (assign a move per image below)</label>
+        </div>
+        <div id="cmMultiList" hidden></div>
+        <div class="form-row">
+          <label>Source image</label><select id="cmSource"></select>
+        </div>
+        <div class="form-row">
+          <label>Shot length</label>
+          <select id="cmSecs">
+            <option value="2">2 s (total 10 s &middot; fastest)</option>
+            <option value="2.5" selected>2.5 s (total 12.5 s &middot; recommended)</option>
+            <option value="3">3 s (total 15 s)</option>
+            <option value="3.5">3.5 s (total 17.5 s)</option>
+            <option value="4">4 s (total 20 s)</option>
+          </select>
+          <span class="hint" id="cmMoveInfo"></span>
+        </div>
+        <details class="adv">
+          <summary>Advanced: anchor fine-tuning (optional &mdash; content-dense areas are auto-detected)</summary>
+          <div class="anchor-row" id="anchorInputs">
+            <!-- generated by JS -->
+          </div>
+        </details>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnCmRender">Render Camera Move Video</button>
+        </div>
+        <div class="job-box" id="cmJob"></div>
+        <div id="cmRenderOut"></div>
+      </section>
+
+      <!-- 2 · AI segmented handheld -->
+      <section class="subblock">
+        <h3 class="block-hd">2 &middot; AI segmented handheld &mdash; one clip per card (identify &rarr; order &rarr; generate &rarr; Hero)</h3>
+        <p class="hint">New pipeline: the AI first <b>identifies the individual components</b> in the set and orders them as main invitation &rarr; RSVP &rarr; details &rarr; menu &rarr; other &rarr; envelope / shell (script planning layer). Then <b>each component gets its own 4-second clip</b> of &ldquo;pick up with both hands &rarr; centre display &rarr; 3&deg;&ndash;5&deg; micro-tilt &rarr; hold&rdquo;, trimmed locally to 2.5&ndash;3&nbsp;s, and finally stitched in order with a Hero ending. One product, one core action per generation &mdash; text stability and success rate are far higher than a single long instruction. Every other card stays in place in the background and the camera stays locked (CM-10 spec).</p>
+        <div class="form-row">
+          <label>Set source image</label><select id="scSource"></select>
+        </div>
+        <div class="form-row">
+          <label>Planning depth</label>
+          <div class="radio-row" id="scDepth">
+            <label><input type="radio" name="scdepth" value="fast" checked> Fast identify (~15 s &middot; about &yen;0.01&ndash;0.03)</label>
+            <label><input type="radio" name="scdepth" value="deep"> Deep identify (~100 s &middot; includes occlusion and quality detail)</label>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnScPlan">1 &middot; Identify components &amp; order</button>
+        </div>
+        <div class="job-box" id="scPlanJob"></div>
+        <div id="scQuality"></div>
+        <div id="scPlanList"></div>
+        <div class="btn-row" id="scGenRow" hidden>
+          <label style="align-self:center">Resolution</label>
+          <select id="scResolution" style="width:auto">
+            <option value="720p" selected>720p</option>
+            <option value="480p">480p (draft check, ~60% cheaper)</option>
+          </select>
+          <button class="btn btn-primary" id="btnScGenerate">2 &middot; Generate all clips (4 s each &rarr; trimmed)</button>
+          <button class="btn btn-mini" id="btnScSavePlan">Save plan changes</button>
+        </div>
+        <div class="job-box" id="scGenJob"></div>
+        <div id="scSegs"></div>
+        <div class="btn-row" id="scHeroRow" hidden>
+          <label style="align-self:center">Hero ending</label>
+          <select id="scHeroMove" style="width:auto">
+            <option value="cm10" selected>CM-10 Locked shot + micro push</option>
+            <option value="cm05">CM-05 Slow pull out</option>
+          </select>
+          <select id="scHeroSecs" style="width:auto">
+            <option value="2.5" selected>2.5 s</option>
+            <option value="3">3 s</option>
+          </select>
+          <button class="btn" id="btnScHero">3 &middot; Render Hero ending (geometric, no AI cost)</button>
+        </div>
+        <div class="job-box" id="scHeroJob"></div>
+        <div class="hint">Once the clips are done, all segments enter the step 4 stitch pool already ordered by product sequence, ready to compose with BGM. If the identification flags a component as occluded or too low-quality, generate a handheld storyboard for it in the fold-out below, then switch that clip to use the storyboard as reference.</div>
+      </section>
+
+      <!-- 2b · Legacy: single long-instruction generation (kept for comparison) -->
+      <details class="adv fold">
+        <summary>Legacy: generate the whole set from one long instruction (no longer recommended &mdash; the long prompt now serves as the planning layer)</summary>
+        <p class="hint">This approach asks the model to show every card in a single generation. In practice text drift and truncated motion are common. The long instruction's role has been taken over by &ldquo;Identify components &amp; order&rdquo; above; what actually reaches Seedance is the split single-shot instruction. The controls below are kept for comparison experiments.</p>
+        <p class="hint">The current official prompt covers <b>whole-set display</b>: the model first identifies every independent paper component in frame, then works through main invitation &rarr; RSVP &rarr; details / reception / information &rarr; menu &rarr; other cards &rarr; envelope / shell, picking up each card &rarr; displaying it centre frame &rarr; returning it, then settling into a tidy final arrangement.<br>The prompt treats <b>reference image + first frame + last frame</b> as the sole visual authority, so <b>specifying a last frame is strongly recommended</b> (first/last-frame mode). Without it, the ending has no reference. The first frame defaults to step 2's <b>element assets</b> (auto-detected; falls back to step 1 uploads if step 2 produced nothing). If first and last frames differ in aspect ratio, the first frame wins and the last frame is cropped to match.<br>
+          <b>Spec note</b>: this prompt describes displaying <i>the whole set, card by card</i>, so the first frame should ideally show <b>the complete set in one shot</b>. If step 2 used &ldquo;per element&rdquo; granularity, generate an additional whole-set image to use as first / last frame.</p>
+        <div class="form-row"><label>First frame</label><select id="hhFirstFrame"></select></div>
+        <div class="hint" id="hhFirstFrameNote"></div>
+        <div class="form-row"><label>Last frame (optional)</label><select id="hhLastFrame"></select></div>
+        <div class="hint" id="hhLastFrameNote"></div>
+        <div class="form-row"><label>Duration</label>
+          <select id="hhDuration">
+            <option value="5" selected>5 seconds</option>
+            <option value="8">8 seconds</option>
+            <option value="10">10 seconds</option>
+            <option value="custom">Custom&hellip;</option>
+          </select>
+          <input type="number" id="hhDurationCustom" min="4" max="15" value="6" style="display:none;width:90px"> s
+        </div>
+        <div class="hint">Timing note: in whole-set, card-by-card mode each card needs roughly 1.5&ndash;2.5&nbsp;s (pick up &rarr; 0.5&ndash;1&nbsp;s centre display &rarr; return), plus a 1&ndash;1.5&nbsp;s hold at the end. <b>Allow &ge;10&nbsp;s for 3 cards, and about +2&nbsp;s per extra card.</b> Five seconds usually only covers 1&ndash;2 cards and tends to compress or truncate the motion.</div>
+        <div class="form-row col">
+          <label style="display:flex;align-items:center;gap:10px">Prompt (official template, editable)
+            <button class="btn btn-mini" id="btnHhReset" type="button">Reset to official prompt</button>
+          </label>
+          <textarea id="hhPrompt" rows="10"></textarea>
+          <span class="hint">This prompt treats <b>reference image + first frame + last frame</b> as the sole visual authority, locking one tabletop / background / props / lighting / camera / pair of hands and displaying each card in turn. Do not trim the pickup order, motion amplitude, or the prohibition list in the second half.</span>
+        </div>
+        <div class="form-row">
+          <label>Generation</label>
+          <div class="radio-row" id="hhMode">
+            <label><input type="radio" name="hhmode" value="ark" checked> Direct AI generation (Volcengine Ark)</label>
+            <label><input type="radio" name="hhmode" value="manual"> Brief + upload finished clip</label>
+          </div>
+        </div>
+        <div id="hhArkBox">
+          <div class="form-row">
+            <label>Resolution</label>
+            <select id="hhResolution">
+              <option value="720p" selected>720p</option>
+              <option value="1080p">1080p</option>
+              <option value="480p">480p (draft check, cheapest)</option>
+            </select>
+            <label style="margin-left:20px">Aspect ratio</label>
+            <select id="hhRatio">
+              <option value="9:16" selected>9:16 vertical (this project's spec)</option>
+              <option value="adaptive">adaptive (follows the first frame)</option>
+              <option value="16:9">16:9 landscape</option>
+              <option value="1:1">1:1 square</option>
+              <option value="3:4">3:4</option>
+              <option value="4:3">4:3</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Audio</label>
+            <div class="radio-row">
+              <label><input type="checkbox" id="hhAudio"> Generate synchronised audio (Seedance 2.0 generates picture and sound together; off by default here &mdash; BGM is added in step 4)</label>
+              <label><input type="checkbox" id="hhWatermark"> Keep platform watermark (off by default)</label>
+            </div>
+          </div>
+          <div class="banner ok" id="hhArkState"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="btnHhCopy">Copy prompt</button>
+          <button class="btn btn-primary" id="btnHhGenerate">Generate video via AI</button>
+          <button class="btn" id="btnHhCreate">Create brief</button>
+          <button class="btn" id="btnHhUpload">Upload finished video</button>
+          <input type="file" id="fileHandheld" accept="video/*" hidden>
+        </div>
+        <div class="job-box" id="hhGenJob"></div>
+        <div id="hhJobs"></div>
+      </details>
+
+      <!-- 3 · Optional: Seedream handheld storyboards -->
+      <details class="adv fold" id="sbFold">
+        <summary>Optional: generate handheld storyboards with Seedream (4K set &middot; about &yen;0.22 per image)</summary>
+        <div class="fold-body">
+          <p class="hint">If step 2 already produced element assets, use those as the first frame &mdash; this block is only needed when you want AI-generated handheld storyboards. Note that AI redrawing shifts small type on the card face and can invalidate QR codes; for commercial work, trust real product photography. Output also joins the &ldquo;first frame source&rdquo; candidates above.</p>
+          <div class="form-row">
+            <label>Reference photos</label>
+            <select id="sbRef">
+              <option value="">(Auto: use all step 1 uploads, up to 3)</option>
+            </select>
+          </div>
+          <div class="form-row col">
+            <label style="display:flex;align-items:center;gap:10px">Prompt (official template, editable)
+              <button class="btn btn-mini" id="btnSbReset" type="button">Reset to official prompt</button>
+            </label>
+            <textarea id="sbPrompt" rows="9"></textarea>
+          </div>
+          <div class="form-row col">
+            <label>Shot list (optional &middot; describe this product's structure; appended to the prompt. Shoot standalone cards separately, and write &ldquo;show as one unit&rdquo; for content built into a shell)</label>
+            <textarea id="sbShotList" rows="4" placeholder="e.g.&#10;1. Envelope shell as one unit (gold liner + wax seal), handheld, emphasise the liner pattern&#10;2. Tri-fold insert as one unit, do not split RSVP / reception panels&#10;3. Close-up of the seal and liner pattern"></textarea>
+          </div>
+          <div class="form-row">
+            <label>Quality</label>
+            <select id="sbSize">
+              <option value="4K" selected>4K</option>
+              <option value="3K">3K</option>
+              <option value="2K">2K</option>
+            </select>
+            <label style="margin-left:16px">Images</label>
+            <select id="sbCount">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="6">6</option>
+            </select>
+            <label style="margin-left:16px">Format</label>
+            <select id="sbFmt">
+              <option value="jpeg" selected>jpeg</option>
+              <option value="png">png (lossless, larger)</option>
+            </select>
+          </div>
+          <div class="banner ok" id="sbArkState"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="btnSbGenerate">Generate storyboards (Seedream)</button>
+            <button class="btn" id="btnSbCopy">Copy prompt</button>
+          </div>
+          <div class="job-box" id="sbJob"></div>
+          <div class="dropzone" id="dzStoryboard">
+            <input type="file" id="fileStoryboard" multiple accept="image/*" hidden>
+            <b>Or click / drag to upload existing storyboards</b>
+            <span>Uploads appear in the &ldquo;first frame source&rdquo; list above</span>
+          </div>
+          <div class="thumb-grid" id="sbGrid"></div>
+        </div>
+      </details>
+
+      <div class="panel-actions">
+        <button class="btn" data-goto="2">&larr; Back to element assets</button>
+        <button class="btn btn-primary" data-goto="4">Video ready &rarr; Compose &amp; export</button>
+      </div>
+    </div>
+
+    <!-- Step 4 · Compose & export -->
+    <div class="panel" data-panel="4">
+      <h2>Compose &amp; Export <span class="tag">Stitch + BGM</span></h2>
+      <p class="hint">Camera moves come first, handheld showcase after &mdash; you can reorder either. BGM comes from a local royalty-free library, mixed with automatic loudness normalisation plus fade in / out. No AI compute involved anywhere in this step.</p>
+      <h3>Video segments (order = stitch order)</h3>
+      <div class="seg-list" id="segList"></div>
+      <h3>Background music (royalty-free library)</h3>
+      <div class="bgm-list" id="bgmList"></div>
+      <div class="form-row">
+        <label>Gain</label><input type="range" id="bgmGain" min="-12" max="3" value="-3" step="1"><span id="bgmGainVal">-3 dB</span>
+        <label style="margin-left:24px">Fade in</label><input type="number" id="fadeIn" value="1.2" step="0.1" style="width:70px">s
+        <label>Fade out</label><input type="number" id="fadeOut" value="2.6" step="0.1" style="width:70px">s
+      </div>
+      <button class="btn btn-primary" id="btnCompose">Compose &amp; Export</button>
+      <div class="job-box" id="composeJob"></div>
+      <div id="composeOut"></div>
+      <div class="panel-actions">
+        <button class="btn" data-goto="3">&larr; Back to video generation</button>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- Settings modal -->
+<div class="modal-mask" id="settingsModal" hidden>
+  <div class="modal" id="settingsModalBox">
+    <div class="modal-head">
+      <h2>Settings &middot; AI Integrations</h2>
+      <button class="modal-x" id="btnCfgClose" type="button" title="Close (Esc)">&times;</button>
+    </div>
+    <p class="hint">Every API below is pluggable: enter valid credentials to switch the corresponding AI capability on. Left blank, the studio runs on local compute plus manual uploads.</p>
+    <fieldset class="ops"><legend>Video generation &middot; Volcengine Ark (Doubao Seedance)</legend>
+      <p class="hint" style="margin:0 0 10px">In the <a href="https://console.volcengine.com/ark" target="_blank">Ark console</a> &rarr; enable &ldquo;Doubao video generation models&rdquo; &rarr; create a long-lived API key under &ldquo;API key management&rdquo; in the left sidebar, then paste it below.<br>
+      Endpoint: <code>POST {endpoint}/contents/generations/tasks</code>, auth header <code>Authorization: Bearer &lt;ARK_API_KEY&gt;</code><br>
+      Default model: <code>doubao-seedance-2-0-mini-260615</code> (Seedance 2.0 mini &middot; 480p/720p &middot; 4&ndash;15&nbsp;s). <b>Note: the Seedance 2.0 family rejects reference images containing real human faces</b> &mdash; product shots contain none, so you are fine.</p>
+      <div class="form-row"><label>Endpoint</label><input id="cfgVidEp" placeholder="https://ark.cn-beijing.volces.com/api/v3 (leave blank for default)"></div>
+      <div class="form-row"><label>ARK_API_KEY</label><input type="password" id="cfgVidKey" placeholder="Paste your Volcengine Ark long-lived API key"></div>
+      <div class="form-row"><label>Model</label>
+        <select id="cfgVidModel"></select></div>
+      <div class="form-row">
+        <label>Default resolution</label>
+        <select id="cfgVidRes"><option value="720p">720p</option><option value="1080p">1080p</option><option value="480p">480p</option></select>
+        <label style="margin-left:16px">Default ratio</label>
+        <select id="cfgVidRatio">
+          <option value="9:16">9:16</option><option value="adaptive">adaptive</option>
+          <option value="16:9">16:9</option><option value="1:1">1:1</option><option value="3:4">3:4</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="radio-row">
+          <label><input type="checkbox" id="cfgVidAudio"> Generate audio by default</label>
+          <label><input type="checkbox" id="cfgVidWm"> Add watermark by default</label>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnVidTest">Test connection</button>
+        <span id="vidTestOut" class="hint"></span>
+      </div>
+    </fieldset>
+    <fieldset class="ops"><legend>Image generation &middot; Volcengine Ark Doubao-Seedream (step 2 assets / optional storyboards &middot; shares the same key)</legend>
+      <p class="hint" style="margin:0 0 10px">Shares the same ARK_API_KEY as video, so usually nothing extra to fill in. Model <code>doubao-seedream-5-0-260128</code> (Seedream 5.0 Lite; the <code>-lite-</code> alias is the same model).<br>
+      Endpoint: <code>POST {endpoint}/images/generations</code>, set generation via <code>sequential_image_generation=auto</code>. Note: <b>reference images + generated images &le; 15</b>.</p>
+      <div class="form-row"><label>Endpoint</label><input id="cfgSbEp" placeholder="https://ark.cn-beijing.volces.com/api/v3 (leave blank for default)"></div>
+      <div class="form-row"><label>ARK_API_KEY</label><input type="password" id="cfgSbKey" placeholder="Can share the same key as video generation"></div>
+      <div class="form-row"><label>Model</label><select id="cfgSbModel"></select></div>
+      <div class="form-row">
+        <label>Default quality</label>
+        <select id="cfgSbSize"><option value="4K">4K</option><option value="3K">3K</option><option value="2K">2K</option></select>
+        <label style="margin-left:16px">Default count</label>
+        <input type="number" id="cfgSbMax" min="1" max="15" value="3" style="width:80px">
+        <label style="margin-left:16px">Format</label>
+        <select id="cfgSbFmt"><option value="jpeg">jpeg</option><option value="png">png</option></select>
+      </div>
+      <div class="form-row">
+        <div class="radio-row">
+          <label><input type="checkbox" id="cfgSbWm"> Keep the &ldquo;AI generated&rdquo; watermark (off by default)</label>
+          <label><input type="checkbox" id="cfgSbOpt"> Enable prompt optimisation (standard)</label>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnSbTest">Test connection</button>
+        <span id="sbTestOut" class="hint"></span>
+      </div>
+    </fieldset>
+    <div class="btn-row right">
+      <button class="btn" id="btnCfgCancel">Cancel</button>
+      <button class="btn btn-primary" id="btnCfgSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

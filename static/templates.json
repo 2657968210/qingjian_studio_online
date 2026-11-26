@@ -1,0 +1,282 @@
+{
+  "categories": [
+    {
+      "id": "all",
+      "name": "All"
+    },
+    {
+      "id": "products",
+      "name": "Product Showcase"
+    },
+    {
+      "id": "palettes",
+      "name": "Color Palettes"
+    },
+    {
+      "id": "wedding",
+      "name": "Wedding Inspiration"
+    },
+    {
+      "id": "new",
+      "name": "New & Featured"
+    }
+  ],
+  "styles": [],
+  "templates": [
+    {
+      "id": "four_grid",
+      "name": "Grid Showcase",
+      "category": "palettes",
+      "pipeline": "four_grid",
+      "cover": "/static/templates/tpl_fourgrid.mp4",
+      "poster": "/static/templates/tpl_fourgrid.jpg",
+      "target_secs": 12,
+      "recommended_ratio": "9:16",
+      "desc": "Show matching invitations, menus, and cards in one coordinated video.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "4-8 photos"
+        }
+      ]
+    },
+    {
+      "id": "wedding_look",
+      "name": "Color Palette Showcase",
+      "category": "palettes",
+      "pipeline": "collage_palette",
+      "cover": "/static/templates/tpl_weddinglook.mp4",
+      "poster": "/static/templates/tpl_weddinglook.jpg",
+      "target_secs": "scales with photo count (3+)",
+      "recommended_ratio": "9:16",
+      "desc": "Present your stationery alongside matching colors and wedding details.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "3+ photos"
+        }
+      ]
+    },
+    {
+      "id": "moodboard",
+      "name": "Wedding Moodboard",
+      "category": "palettes",
+      "pipeline": "moodboard_showcase",
+      "cover": "/static/templates/tpl_moodboard.mp4",
+      "poster": "/static/templates/tpl_moodboard.jpg",
+      "target_secs": "about 16s for 5 photos, +1.5s per extra photo",
+      "recommended_ratio": "9:16",
+      "desc": "Bring your wedding photos and color palette together in one cohesive moodboard. Every uploaded photo gets its own full-screen moment.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "5-20 photos"
+        }
+      ]
+    },
+    {
+      "id": "decor_show",
+      "name": "Wedding Signage & Decor",
+      "category": "products",
+      "pipeline": "decor_show",
+      "cover": "/static/templates/tpl_decor.mp4",
+      "poster": "/static/templates/tpl_decor.jpg",
+      "target_secs": "scales with photo count (3-12)",
+      "recommended_ratio": "9:16",
+      "desc": "Showcase welcome signs, seating charts, and coordinated wedding decor.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "3-12 photos"
+        }
+      ]
+    },
+    {
+      "id": "multi_suite",
+      "name": "Collection Showcase",
+      "category": "products",
+      "pipeline": "multi_suite",
+      "cover": "/static/templates/tpl_multi.mp4",
+      "poster": "/static/templates/tpl_multi.jpg",
+      "target_secs": 15,
+      "recommended_ratio": "9:16",
+      "desc": "Introduce multiple designs, with a moment for each one.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "2-8 photos"
+        }
+      ]
+    },
+    {
+      "id": "before_after",
+      "name": "Before & After",
+      "category": "new",
+      "pipeline": "before_after",
+      "cover": "/static/templates/tpl_before_after.mp4",
+      "poster": "/static/templates/tpl_before_after.jpg",
+      "target_secs": "10.5s for 6 photos (scales)",
+      "recommended_ratio": "9:16",
+      "desc": "Show the before, then reveal what changed with a bold transition. Perfect for designs, details, and transformations.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "2+ photos"
+        }
+      ]
+    },
+    {
+      "id": "carousel",
+      "name": "New Arrivals Carousel",
+      "category": "new",
+      "pipeline": "carousel",
+      "cover": "/static/templates/tpl_carousel.mp4",
+      "poster": "/static/templates/tpl_carousel.jpg",
+      "target_secs": "scales with photo count (2-8)",
+      "recommended_ratio": "9:16",
+      "desc": "Put each new design in the spotlight, with your collection title and website.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "2-8 photos"
+        }
+      ]
+    },
+    {
+      "id": "scroll_gallery",
+      "name": "Wedding Color Inspiration",
+      "category": "palettes",
+      "pipeline": "scroll_gallery",
+      "cover": "/static/templates/tpl_scroll_bgm.mp4",
+      "poster": "/static/templates/tpl_scroll.jpg",
+      "target_secs": "5s scroll + per-photo (scales)",
+      "recommended_ratio": "9:16",
+      "desc": "Pair your stationery with wedding scenes to share a coordinated look.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "6+ photos"
+        }
+      ]
+    },
+    {
+      "id": "fast_cut",
+      "name": "Beat-Synced Showcase",
+      "category": "wedding",
+      "pipeline": "fast_cut",
+      "cover": "/static/templates/tpl_fastcut.mp4",
+      "poster": "/static/templates/tpl_fastcut.jpg",
+      "target_secs": 11,
+      "recommended_ratio": "9:16",
+      "desc": "Showcase your designs with quick cuts timed to the music.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "10+ photos"
+        }
+      ]
+    },
+    {
+      "id": "cinematic_cut",
+      "name": "Cinematic Showcase",
+      "category": "products",
+      "pipeline": "cinematic_cut",
+      "cover": "/static/templates/tpl_cinematic.mp4",
+      "poster": "/static/templates/tpl_cinematic.jpg",
+      "target_secs": "4.8 + 0.56 x N (scales with photo count)",
+      "recommended_ratio": "9:16",
+      "desc": "Highlight textures and details with slow, elegant motion.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "6-12 photos"
+        }
+      ]
+    },
+    {
+      "id": "three_screen",
+      "name": "Three-Panel Showcase",
+      "category": "wedding",
+      "pipeline": "three_screen",
+      "cover": "/static/templates/tpl_three_screen.mp4",
+      "poster": "/static/templates/tpl_three_screen.jpg",
+      "target_secs": "scales with photo count (5-12)",
+      "recommended_ratio": "9:16",
+      "desc": "Open with a three-panel layout, then showcase each photo in turn.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "5+ photos"
+        }
+      ]
+    },
+    {
+      "id": "top5",
+      "name": "Top Picks Countdown",
+      "category": "new",
+      "pipeline": "top5",
+      "cover": "/static/templates/tpl_top5.mp4",
+      "poster": "/static/templates/tpl_top5.jpg",
+      "target_secs": "scales with photo count (3-8)",
+      "recommended_ratio": "9:16",
+      "desc": "Count down your favorite designs with their names.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "3+ photos"
+        }
+      ]
+    },
+    {
+      "id": "auto_moves",
+      "name": "Product Spotlight",
+      "category": "products",
+      "pipeline": "card_pan",
+      "cover": "/static/templates/tpl_card_pan.mp4",
+      "poster": "/static/templates/tpl_cardpan.jpg",
+      "target_secs": 15,
+      "recommended_ratio": "9:16",
+      "desc": "Highlight one invitation design with gentle motion and detail close-ups.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "1–8 photos"
+        }
+      ]
+    },
+    {
+      "id": "zoom_punch",
+      "name": "Dynamic Collection Showcase",
+      "category": "products",
+      "pipeline": "zoom_punch",
+      "cover": "/static/templates/tpl_zoompunch.mp4",
+      "poster": "/static/templates/tpl_zoompunch.jpg",
+      "target_secs": "scales with photo count (3-12)",
+      "recommended_ratio": "9:16",
+      "desc": "Showcase multiple invitation designs with dynamic transitions, rhythmic cuts, and a bold collection title.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "3-12 photos"
+        }
+      ]
+    },
+    {
+      "id": "bw_reveal",
+      "name": "B&W → Color Reveal",
+      "category": "wedding",
+      "pipeline": "bw_reveal",
+      "cover": "/static/templates/tpl_bwreveal.mp4",
+      "poster": "/static/templates/tpl_bwreveal.jpg",
+      "target_secs": "scales with photo count (10+)",
+      "recommended_ratio": "9:16",
+      "desc": "Each photo opens in black & white, then reveals in full colour with a continuous camera move. Add an optional opening title.",
+      "moves": [
+        {
+          "id": "summary",
+          "label": "10+ photos"
+        }
+      ]
+    }
+  ]
+}

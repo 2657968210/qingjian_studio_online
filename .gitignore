@@ -1,0 +1,30 @@
+# 运行时 / 缓存（非源码，不进版本库）
+__pycache__/
+*.pyc
+data/
+.workbuddy/
+jobs/
+_publish_stash/
+*.zip
+*.log
+_reflog*.txt
+_del.txt
+
+# 密钥文件不进仓库（用 config.template.json 作模板）
+config.json
+
+# 含口令/敏感信息的文件不进仓库
+DEPLOY.md
+start_8790.bat
+sync_push.bat
+sync_push.py
+autoupdate_watchdog.py
+autoupdate.log
+integ_selftest.py
+make_customer_link.py
+_ledger/
+data/
+_bak_*.py
+_patch_*.py
+_make_fullpack.py
+*.png

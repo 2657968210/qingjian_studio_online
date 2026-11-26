@@ -1,0 +1,43 @@
+{
+  "cloud_token": "",
+  "port": 8790,
+  "video_api": {
+    "provider": "volcengine_ark",
+    "endpoint": "",
+    "api_key": "",
+    "model": "doubao-seedance-2-0-mini-260615",
+    "resolution": "720p",
+    "ratio": "9:16",
+    "generate_audio": false,
+    "watermark": false,
+    "camera_fixed": false
+  },
+  "storyboard_api": {
+    "provider": "volcengine_ark",
+    "endpoint": "",
+    "api_key": "",
+    "model": "doubao-seedream-5-0-260128",
+    "size": "4K",
+    "output_format": "jpeg",
+    "max_images": 3,
+    "sequential": "auto",
+    "watermark": false,
+    "optimize_prompt": "standard"
+  },
+  "access_password": "",
+  "account": {
+    "allow_plain_id": true,
+    "initial_points": 60,
+    "points_per_video": 20,
+    "secret": "",
+    "topup_token": "",
+    "admin_password": "",
+    "auth_api": {
+      "enabled": false,
+      "base_url": "https://www.janicepaper.com",
+      "timeout": 8,
+      "default_plan": "standard",
+      "group_plan_map": {}
+    }
+  }
+}

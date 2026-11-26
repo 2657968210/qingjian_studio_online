@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html data-auth="out" lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invitation Promo Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/studio.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="mark">JP</span>
+    <div class="brand-text">
+      <h1>Invitation Promo Studio</h1>
+      <p>Creative &middot; Paper Studio</p>
+    </div>
+  </div>
+  <!-- 2026-11-04：Studio setup 入口从前台隐藏（ARK key 等配置走 config.json，
+       弹窗标记保留，JS 绑定不受影响） -->
+  <button class="setup-btn" id="btnSetup" type="button" title="Studio setup" aria-label="Studio setup"
+          hidden style="display:none">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.4" fill="var(--surface)"/>
+      <line x1="4" y1="16" x2="20" y2="16"/><circle cx="15" cy="16" r="2.4" fill="var(--surface)"/>
+    </svg>
+  </button>
+</header>
+
+<div class="shell">
+
+  <!-- step rail (left sidebar) -->
+  <nav class="rail" id="rail">
+    <button class="rail-item" data-step="1" type="button">
+      <span class="dot">1</span>
+      <span class="rail-txt">
+        <span class="lbl">Choose a Template</span>
+        <span class="sub">Pick a style for your product video.</span>
+      </span>
+    </button>
+    <button class="rail-item" data-step="2" type="button">
+      <span class="dot">2</span>
+      <span class="rail-txt">
+        <span class="lbl">Upload Photos</span>
+        <span class="sub">Add your photos.</span>
+      </span>
+    </button>
+    <button class="rail-item" data-step="3" type="button">
+      <span class="dot">3</span>
+      <span class="rail-txt">
+        <span class="lbl">Choose Format</span>
+        <span class="sub">Choose vertical or square.</span>
+      </span>
+    </button>
+    <button class="rail-item" data-step="4" type="button">
+      <span class="dot">4</span>
+      <span class="rail-txt">
+        <span class="lbl">Customize Your Video</span>
+        <span class="sub">Add text, music, and your brand.</span>
+      </span>
+    </button>
+    <button class="rail-item" data-step="5" type="button">
+      <span class="dot">5</span>
+      <span class="rail-txt">
+        <span class="lbl">Create &amp; Download</span>
+        <span class="sub">Create, preview, and download your video.</span>
+      </span>
+    </button>
+
+    <div class="rail-note">
+      Upload your photos and the studio picks the camera moves for you. It reads the layout and content
+      of each shot, then builds gentle pans, rotations, and pull-backs that fit the image. Nothing to tune.
+    </div>
+  </nav>
+
+  <!-- ============ Step 1 · choose template ============ -->
+  <main class="main">
+    <section class="card step" id="step1">
+      <div class="eyebrow">01 / Choose template</div>
+      <!-- 2026-11-13 用户：标题与搜索框同一行（搜索框右上），分类 chips 单独一行。 -->
+      <div class="step-head">
+        <h2>Choose Your Video Template</h2>
+        <input class="tpl-search" id="tplSearch" type="search" placeholder="Search templates&hellip;" aria-label="Search templates">
+      </div>
+      <p class="lede">Preview a template, then upload your product photos to create your video.</p>
+
+      <div class="tpl-bar">
+        <div class="tpl-chips" id="tplChips"></div>
+      </div>
+
+      <div class="tpl-grid" id="tplGrid"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="btnToStep2" disabled>Next: Upload Photos</button>
+        <span class="hint" id="step1Hint">Pick a template first.</span>
+      </div>
+    </section>
+
+    <!-- ============ Step 2 · upload photos ============ -->
+    <section class="card step" id="step2" hidden>
+      <div class="eyebrow">02 / Upload photos</div>
+      <h2>Add Your Product Photos</h2>
+      <p class="lede">Upload a clear photo of your invitation suite. Keep all pieces fully visible and
+        details in focus.</p>
+
+      <div class="tpl-pick" id="tplPick"></div>
+
+      <div class="drop" id="drop">
+        <input type="file" id="fileInput" accept="image/*" multiple hidden>
+        <div class="drop-inner">
+          <span class="drop-ico">＋</span>
+          <b>Click to upload photos, or drag and drop them here</b>
+          <span class="drop-sub">JPG or PNG &middot; Original, high-resolution photos recommended</span>
+        </div>
+      </div>
+
+      <div class="hint" id="uprog" hidden></div>
+
+      <div class="t5-title-wrap" id="t5TitleWrap" hidden>
+        <label class="field"><span>Opening title &middot; headline of the first scene (blank = TOP + photo count)</span>
+          <input type="text" id="t5Title" maxlength="24" placeholder="Auto &mdash; e.g. TOP 6"></label>
+        <label class="field"><span>Opening subtitle &middot; optional small line under the title</span>
+          <input type="text" id="t5Sub" maxlength="60" placeholder="Optional &mdash; leave blank to skip"></label>
+      </div>
+
+      <div class="t5-title-wrap" id="carFieldsWrap" hidden>
+        <label class="field"><span>Headline &middot; bold top line (e.g. NEW COLLECTION)</span>
+          <input type="text" id="carTitle2" maxlength="30" value="NEW COLLECTION"></label>
+        <label class="field"><span>Subtitle &middot; light line under the headline (e.g. Our Wedding Invitations)</span>
+          <input type="text" id="carTitle1" maxlength="40" value="Our Wedding Invitations"></label>
+        <label class="field"><span>Footer text &middot; your website or tagline</span>
+          <input type="text" id="carFooter" maxlength="60" value="www.janicepaper.com"></label>
+      </div>
+
+      <div class="photos" id="photos"></div>
+
+      <div class="actions">
+        <button class="btn btn-quiet" id="btnBack1" type="button">Back to Templates</button>
+        <button class="btn btn-primary" id="btnToStep3" disabled>Next: Choose Format</button>
+        <span class="hint" id="eta"></span>
+      </div>
+    </section>
+
+    <!-- ============ Step 3 · choose format ============ -->
+    <section class="card step" id="step3" hidden>
+      <div class="eyebrow">03 / Choose format</div>
+      <h2>Choose Your Video Format</h2>
+      <p class="lede">Choose the format that best fits where you&rsquo;ll share your video.</p>
+
+      <div class="ratios" id="ratios"></div>
+
+      <p class="hint" id="ratioKeep"></p>
+
+      <div class="actions">
+        <button class="btn btn-quiet" id="btnBack2" type="button">Back to Photos</button>
+        <button class="btn btn-primary" id="btnToStep4" type="button">Next</button>
+      </div>
+    </section>
+
+    <!-- ============ Step 4 · customize your video ============ -->
+    <section class="card step" id="step4" hidden>
+      <div class="eyebrow">04 / Customize Your Video</div>
+      <h2>Customize Your Video</h2>
+      <p class="lede">Add text, voiceover, music, and your logo. All optional.</p>
+
+      <div class="shape-tpl">
+        <span class="shape-tpl-lbl">Template</span>
+        <span class="shape-tpl-moves" id="voTplInfo"></span>
+      </div>
+
+      <!-- Block 1 · On-Screen Text -->
+      <div class="subcard" id="subCaptions">
+        <div class="subcard-head">
+          <span class="subcard-no">1</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">On-Screen Text</div>
+            <div class="subcard-sub">Add a short headline to your video.</div>
+          </div>
+          <label class="switch" title="Add captions">
+            <!-- 2026-11-03：有文字版本的模版 Captions 默认开启 -->
+            <input type="checkbox" id="capOn">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+        <div class="subcard-body" id="capFields" hidden>
+          <div style="margin:0 0 12px" id="capFontWrap">
+            <label class="field" style="max-width:320px"><span>Text style</span>
+              <select id="capFont" style="width:100%">
+                <option value="italic" selected>Serif Italic · Cormorant (default)</option>
+                <option value="serif">Serif · Cormorant</option>
+                <option value="light">Light Italic · Cormorant</option>
+                <option value="script">Script · Great Vibes</option>
+              </select>
+            </label>
+          </div>
+          <!-- 2026-11-03 字体样式预览：按客户当前输入的文字实时渲染所选字体（白字、深底） -->
+          <div class="font-preview" id="fontPreview" aria-hidden="true">
+            <span id="fontPreviewText"></span>
+          </div>
+          <div id="capFieldsMulti" hidden>
+            <label class="field"><span>Collection title · shown on the opening board</span>
+              <input id="colTitle" type="text" maxlength="50" placeholder="Our Collection"></label>
+          </div>
+          <div id="capFieldsGrid" hidden>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <label class="field" style="flex:1 1 200px"><span>Title · serif</span>
+                <input id="fgTitle" type="text" maxlength="40" placeholder="WEDDING TREND"></label>
+              <label class="field" style="flex:1 1 200px"><span>Subtitle · script</span>
+                <input id="fgSub" type="text" maxlength="40" placeholder="Dusty Blue"></label>
+            </div>
+          </div>
+          <div id="capFieldsLook" hidden>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <label class="field" style="flex:1 1 200px"><span>Title · serif</span>
+                <input id="wlTitle" type="text" maxlength="40" placeholder="WEDDING TREND"></label>
+              <label class="field" style="flex:1 1 200px"><span>Subtitle · colour name &mdash; detected from your photos, edit if needed</span>
+                <input id="wlSub" type="text" maxlength="40" value="" placeholder="e.g. Terracotta &amp; Rust"></label>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <span class="hint" style="margin:0">We read the palette name from your photos. Type your own wording if it doesn&rsquo;t match.</span>
+              <button class="btn btn-quiet" id="wlRedetect" type="button" style="margin:0">Detect colours again</button>
+            </div>
+            <!-- 2026-11-05 用户③：色板编辑器——每档颜色可改名/微调色值，只展示图中实际出现的颜色 -->
+            <div id="wlSwatches" style="margin-top:10px;display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;align-items:center"></div>
+            <span class="hint" style="display:block;margin-top:6px">Swatches are detected from your photos &mdash; fine-tune any shade before rendering. Only colours actually present are shown.</span>
+          </div>
+          <div id="capFieldsLine" hidden>
+            <label class="field"><span>Video headline</span>
+              <input id="capLine" type="text" maxlength="60" placeholder="Suggest Text"></label>
+          </div>
+          <div id="capFieldsFast" hidden>
+            <label class="field"><span>On-screen caption · italic, shown throughout &mdash; leave blank for the default</span>
+              <input id="fcText" type="text" maxlength="60" placeholder="the details, the day"></label>
+          </div>
+          <div id="capFieldsZoom" hidden>
+            <label class="field"><span>Collection title · dark serif on white bars, shown at the opening &mdash; leave blank for the default (use · to split two lines)</span>
+              <input id="zpText" type="text" maxlength="120" placeholder="2027 New Collection · Laser cut invites"></label>
+          </div>
+          <div id="capFieldsCin" hidden>
+            <label class="field"><span>On-screen caption · italic, shown throughout &mdash; leave blank for the default</span>
+              <input id="cinText" type="text" maxlength="60" placeholder="the details, the day"></label>
+          </div>
+          <div id="capFieldsThree" hidden>
+            <label class="field"><span>On-screen subtitle &middot; shown in the upper part of the video &mdash; leave blank and we&rsquo;ll write one from your photos</span>
+              <input id="tsText" type="text" maxlength="60" placeholder="Your three-screen story"></label>
+          </div>
+          <div id="capFieldsDecor" hidden>
+            <label class="field"><span>On-screen text &middot; shown in the upper part of the video &mdash; leave blank and we&rsquo;ll write one from your photos</span>
+              <input id="decorCap" type="text" maxlength="60" placeholder="Timeless details, beautifully made"></label>
+          </div>
+          <div id="capFieldsBw" hidden>
+            <label class="field"><span>Opening title &middot; italic serif, shown for 1 second &mdash; leave blank for the default</span>
+              <input id="bwText" type="text" maxlength="60" placeholder="details ...incoming"></label>
+          </div>
+          <div id="capFieldsBa" hidden>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <label class="field" style="flex:1 1 200px"><span>First title &middot; shown on the mock-up photo &mdash; leave blank for the default</span>
+                <input id="baTitle" type="text" maxlength="40" placeholder="Mock Up"></label>
+              <label class="field" style="flex:1 1 200px"><span>Label &middot; shown on every following photo &mdash; leave blank for the default</span>
+                <input id="baLabel" type="text" maxlength="40" placeholder="Finished Invitation"></label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Block 1b · Colour swatches（Moodboard Showcase 专用，2026-11-25） -->
+      <div class="subcard" id="subMbColors" hidden>
+        <div class="subcard-head">
+          <span class="subcard-no">1</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">Colour swatches</div>
+            <div class="subcard-sub">Four dots sit on the corner of your hero card &mdash; tap to fine-tune any shade.</div>
+          </div>
+        </div>
+        <div class="subcard-body">
+          <div id="mbSwatches" style="display:flex;flex-direction:row;flex-wrap:wrap;gap:12px;align-items:center"></div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="mbPaletteText" type="text" placeholder="Type a palette, e.g. Navy Blue &amp; Gold" maxlength="80"
+                   style="flex:1 1 200px;min-width:180px;padding:9px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;outline:none" />
+            <button class="btn btn-quiet" id="mbApplyText" type="button" style="margin:0">Apply</button>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-quiet" id="mbRedetect" type="button" style="margin:0">Detect colours again</button>
+            <span class="hint" style="margin:0">Read from your photos &mdash; pick shades that match your stationery.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Block 2 · Voiceover -->
+      <div class="subcard" id="subVoiceover">
+        <div class="subcard-head">
+          <span class="subcard-no">2</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">Voiceover</div>
+            <div class="subcard-sub">Add an AI-generated voice to introduce your design.</div>
+          </div>
+          <label class="switch" title="Add AI voiceover">
+            <input type="checkbox" id="voOn">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+        <div class="subcard-body" id="voFields" hidden>
+          <label class="field"><span>Key product detail</span>
+            <input id="voSelling" type="text" maxlength="150" placeholder="hot-foil stamping on textured cotton paper">
+            <span class="char-count" id="voSellingCount" style="float:right;font-size:11px;color:var(--ink-3)">0 / 150</span></label>
+          <label class="field"><span>Call to action</span>
+            <select id="voCta" style="width:100%;max-width:420px">
+              <option value="view">See the full collection</option>
+              <option value="inquire">Ask about custom orders</option>
+              <option value="samples">Request samples</option>
+            </select></label>
+          <p class="hint" style="margin-top:8px">A short English narration is written to match your video&rsquo;s timing and burned in as subtitles. Adds about a minute.</p>
+        </div>
+      </div>
+
+      <!-- Block 3 · Branding -->
+      <div class="subcard" id="subBranding">
+        <div class="subcard-head">
+          <span class="subcard-no">3</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">Logo &amp; End Card</div>
+            <div class="subcard-sub">Add your logo and a closing tagline at the end of the video.</div>
+          </div>
+          <label class="switch" title="Enable branding outro">
+            <input type="checkbox" id="brandOn">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+        <div class="subcard-body" id="brandFields" hidden>
+          <label class="field" style="max-width:420px"><span>Logo · PNG (transparent) or JPG — both supported</span>
+            <span class="upload-pill" id="logoPill">
+              <span class="upload-pill-txt" id="logoName">No logo selected</span>
+              <span class="upload-pill-btn">Upload logo
+                <input id="logoFile" type="file" accept="image/png,image/*" hidden>
+              </span>
+            </span>
+          </label>
+          <label class="field" style="max-width:420px"><span>Tagline (optional)</span>
+            <input id="brandTagline" type="text" maxlength="60" placeholder="Optional &mdash; e.g. Made with care"></label>
+          <p class="hint" id="logoHint" style="margin-top:8px" hidden></p>
+        </div>
+      </div>
+
+      <!-- Block 4 · Background Music -->
+      <div class="subcard" id="subMusic">
+        <div class="subcard-head">
+          <span class="subcard-no">4</span>
+          <div class="subcard-titles">
+            <div class="subcard-title">Background Music</div>
+            <div class="subcard-sub">Use the template music, upload your own, or create a video without music.</div>
+          </div>
+        </div>
+        <div class="subcard-body" id="bgmFields">
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <label class="field" style="flex:1 1 260px">
+              <span>Music</span>
+              <select id="bgmSel" style="width:100%">
+                <option value="" selected>Use Template Music</option>
+                <option value="__upload__">Upload My Own Music</option>
+                <option value="__none__">No Music</option>
+              </select>
+            </label>
+            <label class="btn btn-quiet" style="margin:0;cursor:pointer">Upload Music
+              <input id="bgmFile" type="file" accept=".mp3,.wav,.m4a,.ogg,.flac,audio/*" hidden>
+            </label>
+          </div>
+          <p class="hint" id="bgmHint" style="margin-top:8px" hidden></p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-quiet" id="btnBack2b" type="button">Back to Photos</button>
+        <button class="btn btn-primary" id="btnToStep5" type="button">Create Video</button>
+      </div>
+    </section>
+
+    <!-- ============ Step 5 · create & download ============ -->
+    <section class="card step" id="step5" hidden>
+      <div class="eyebrow">05 / Generate video</div>
+      <h2 id="s4Title">Creating Your Video</h2>
+      <p class="lede" id="s4Lede">Your video is being created. Please keep this tab open until it&rsquo;s ready.</p>
+
+      <div class="renderbox" id="renderBox">
+        <div class="bar big"><div class="bar-fill" id="renderFill"></div></div>
+        <div class="renderstatus" id="renderStatus">Starting&hellip;</div>
+      </div>
+
+      <div class="result" id="result" hidden>
+        <div class="result-stage">
+          <video id="resultVideo" controls playsinline preload="metadata"></video>
+        </div>
+        <div class="videoerr" id="videoErr" hidden></div>
+        <div class="result-meta" id="resultMeta"></div>
+        <div class="actions">
+          <a class="btn btn-primary" id="btnDownload" download>Download video</a>
+          <button class="btn btn-quiet" id="btnAgain" type="button">Make another video</button>
+        </div>
+      </div>
+
+      <div class="err" id="renderErr" hidden></div>
+    </section>
+
+  </main>
+
+  <!-- right · progress summary -->
+  <aside class="aside" id="aside">
+    <div class="aside-card">
+      <h3>Video Summary</h3>
+      <ul class="aside-list" id="asideList"></ul>
+      <p class="aside-note">Photos stay private and are removed automatically when you close this tab.</p>
+    </div>
+  </aside>
+
+</div>
+
+<!-- setup modal (admin) -->
+<div class="mask" id="setupModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Studio setup</h2>
+      <button class="x" id="btnSetupClose" type="button" title="Close">&times;</button>
+    </div>
+    <p class="hint">The photo read and any AI features use this Volcengine Ark key. Leave it blank to run on local compute only.</p>
+    <label class="field"><span>ARK API key</span>
+      <input type="password" id="cfgKey" placeholder="Paste your Volcengine Ark API key"></label>
+    <label class="field"><span>Endpoint</span>
+      <input id="cfgEp" placeholder="https://ark.cn-beijing.volces.com/api/v3"></label>
+    <div class="modal-actions">
+      <button class="btn btn-quiet" id="btnCfgTest" type="button">Test connection</button>
+      <span class="hint" id="cfgTestOut"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-quiet" id="btnCfgCancel" type="button">Cancel</button>
+      <button class="btn btn-primary" id="btnCfgSave" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<!-- uploaded-photo preview lightbox（2026-11-03 点击放大；2026-11-12 滚轮/按钮二次缩放 + 拖拽平移） -->
+<div class="mask" id="photoLightbox" hidden>
+  <div class="lb lb-photo">
+    <button class="lb-x" id="photoLbClose" type="button" title="Close">&times;</button>
+    <div class="lb-viewport" id="photoLbViewport">
+      <img id="photoLbImg" alt="" draggable="false">
+    </div>
+    <div class="lb-zoombar">
+      <button class="lb-zbtn" id="photoZoomOut" type="button" title="Zoom out">&minus;</button>
+      <span id="photoZoomLabel">100%</span>
+      <button class="lb-zbtn" id="photoZoomIn" type="button" title="Zoom in">+</button>
+      <button class="lb-zbtn lb-zreset" id="photoZoomReset" type="button" title="Fit to window">Fit</button>
+      <span class="lb-hint">Scroll to zoom &middot; drag to pan &middot; double-click to toggle</span>
+    </div>
+  </div>
+</div>
+
+<!-- template preview lightbox -->
+<div class="mask" id="tplLightbox" hidden>
+  <div class="lb">
+    <button class="lb-x" id="tplLbClose" type="button" title="Close">&times;</button>
+    <!-- The sample video carries music: opening it is a user gesture, so the browser allows playback with sound -->
+    <video id="tplLbVideo" controls loop playsinline preload="auto"></video>
+    <div class="lb-cap" id="tplLbCap"></div>
+  </div>
+</div>
+
+<script src="/static/studio.js"></script>
+    <script src="/static/authcheck.js" defer></script>
+</body>
+</html>

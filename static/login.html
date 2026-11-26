@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in - Invitation Promo Studio</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500&display=swap">
+<style>
+  :root{--paper:#F5F1EA;--card:#FFFDF9;--ink:#221F1B;--ink2:#6B655C;--line:#DED7CA;--sage:#7D8471}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       background:var(--paper);color:var(--ink);font:15px/1.6 Inter,system-ui,sans-serif;padding:24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:4px;
+        padding:44px 40px;width:100%;max-width:400px;box-shadow:0 1px 2px rgba(34,31,27,.04)}
+  .mark{font:600 13px/1 Inter,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:var(--sage)}
+  h1{font-family:'Cormorant Garamond',Georgia,serif;font-weight:500;font-size:30px;margin:14px 0 6px}
+  p.sub{color:var(--ink2);margin:0 0 22px;font-size:13.5px}
+  label{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink2);margin-bottom:8px}
+  input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:3px;background:#fff;
+        font:15px Inter,sans-serif;color:var(--ink);outline:none}
+  input:focus{border-color:var(--sage)}
+  button.primary{margin-top:18px;width:100%;padding:12px;border:1px solid var(--ink);background:var(--ink);
+         color:#F7F4EE;border-radius:3px;font:600 14px Inter,sans-serif;letter-spacing:.06em;cursor:pointer}
+  button.primary:hover{background:#3A352E}
+  button.primary:disabled{opacity:.6;cursor:default}
+  .err{margin-top:14px;font-size:12.5px;color:#A44A3F;display:none}
+  .foot{margin-top:26px;font-size:11.5px;color:var(--ink2);text-align:center;letter-spacing:.04em}
+  .foot a{color:var(--ink2);text-decoration:underline}
+</style></head>
+<body>
+  <div class="card">
+    <div class="mark">Invitation Promo Studio</div>
+    <h1>Customer Sign In</h1>
+    <p class="sub">Sign in with your account to create and manage your product videos.</p>
+    <form id="f" autocomplete="off">
+      <label for="email">Email</label>
+      <input id="email" type="email" placeholder="you@example.com" autofocus>
+      <label for="pw" style="margin-top:14px">Password</label>
+      <input id="pw" type="password">
+      <button class="primary" type="submit">LOGIN</button>
+      <div class="err" id="e"></div>
+    </form>
+    <div class="foot"><a href="https://www.janicepaper.com/customer/account/forgotpassword/" id="forgot" target="_blank" rel="noopener">Forgot your password?</a></div>
+  </div>
+<script>
+  (function () {
+    // 忘记密码：先弹英文提示，确认后到 JP 官网重置（密码不在本工作台管理）。
+    document.getElementById("forgot").addEventListener("click", function (ev) {
+      ev.preventDefault();
+      var ok = window.confirm(
+        "Your password is managed on the JanicePaper website.\n\n" +
+        "To reset it, you'll be taken to JanicePaper.com, where you can recover " +
+        "your password using your registered email address.\n\n" +
+        "Continue to JanicePaper now?"
+      );
+      if (ok) window.open("https://www.janicepaper.com/customer/account/forgotpassword/", "_blank", "noopener");
+    });
+
+    var PARAM = new URLSearchParams(location.search);
+    var next = PARAM.get("next");
+    // 只接受站内相对路径，避免开放重定向
+    if (!next || next.charAt(0) !== "/" || next.indexOf("//") === 0) next = "/";
+    try {
+      var remembered = localStorage.getItem("jp_studio_email");
+      if (remembered) document.getElementById("email").value = remembered;
+    } catch (e) {}
+
+    function enError(j) {
+      var msg = (j && j.error) || "";
+      if (/停用|disabled/i.test(msg)) return "This account has been disabled. Please contact support.";
+      if (/暂时不可用|unavailable/i.test(msg)) return "Sign-in service is temporarily unavailable. Please try again.";
+      if (/密码|password/i.test(msg) && /错误|invalid|incorrect/i.test(msg)) return "Invalid email or password.";
+      return "Invalid email or password.";
+    }
+
+    document.getElementById("f").addEventListener("submit", async function (ev) {
+      ev.preventDefault();
+      var email = document.getElementById("email").value.trim();
+      var pw = document.getElementById("pw").value;
+      var e = document.getElementById("e");
+      var btn = document.querySelector("button.primary");
+      if (!email || !pw) { e.textContent = "Please enter your email and password."; e.style.display = "block"; return; }
+      e.style.display = "none";
+      btn.disabled = true; btn.textContent = "SIGNING IN…";
+      try {
+        var r = await fetch("/api/login", {method:"POST",
+          headers:{"Content-Type":"application/json"}, body: JSON.stringify({email:email, password:pw})});
+        if (r.ok) {
+          try { localStorage.setItem("jp_studio_email", email); } catch (e2) {}
+          location.href = next;
+          return;
+        }
+        var j = await r.json().catch(function(){return {};});
+        e.textContent = enError(j); e.style.display = "block";
+      } catch (err) {
+        e.textContent = "Network error. Please try again."; e.style.display = "block";
+      } finally {
+        btn.disabled = false; btn.textContent = "LOGIN";
+      }
+    });
+  })();
+</script>
+</body></html>

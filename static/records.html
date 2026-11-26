@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>生成记录 · Studio</title>
+<style>
+  :root{
+    --ink:#221f1b;--ink-2:#6b655c;--line:#e7e0d4;--line-strong:#ded7ca;
+    --surface:#fff;--page:#faf8f4;--accent:#4a5746;--accent-soft:#eef1ec;
+    --warn:#b4441f;--ok:#2f7a4f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+    font:500 14px/1.6 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+  header.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:16px 24px;background:var(--surface);border-bottom:1px solid var(--line)}
+  header.top h1{font-size:17px;font-weight:600;margin:0}
+  header.top .sp{flex:1}
+  .mode{display:flex;align-items:center;gap:8px}
+  .mode label{color:var(--ink-2);font-size:12.5px}
+  input,select{padding:7px 10px;border:1px solid var(--line-strong);border-radius:8px;
+    background:var(--surface);color:var(--ink);font:500 13px Inter,system-ui,sans-serif}
+  button{padding:7px 14px;border:1px solid var(--accent);border-radius:8px;
+    background:var(--accent);color:#fff;cursor:pointer;font:500 13px Inter,system-ui,sans-serif}
+  button.ghost{background:transparent;color:var(--accent)}
+  #keybox{display:none}
+  main{max-width:1120px;margin:0 auto;padding:24px}
+  .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .bar .stat{color:var(--ink-2);font-size:13px}
+  .bar .stat b{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;background:var(--surface);
+    border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{background:var(--accent-soft);color:var(--ink);font-size:12.5px;font-weight:600;white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .cid{font-family:ui-monospace,monospace;font-size:12.5px}
+  .tpl{font-weight:600}
+  .pts{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--warn);color:#fff;font-size:12px}
+  .vid{display:flex;align-items:center;gap:8px}
+  .vid video{width:132px;height:76px;background:#000;border-radius:6px;object-fit:cover}
+  .vid a{color:var(--accent);text-decoration:none;font-size:12.5px;white-space:nowrap}
+  .vid a:hover{text-decoration:underline}
+  .none{color:var(--ink-2);font-size:12.5px;font-style:italic}
+  .msg{padding:14px 16px;border-radius:10px;background:var(--accent-soft);
+    color:var(--accent);margin-bottom:16px;font-size:13px}
+  .msg.err{background:#fbece7;color:var(--warn)}
+  .foot{color:var(--ink-2);font-size:12px;margin-top:16px}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>生成记录</h1>
+  <div class="mode">
+    <label for="modeSel">视图</label>
+    <select id="modeSel">
+      <option value="mine">我的记录</option>
+      <option value="admin">运营方（全量）</option>
+    </select>
+  </div>
+  <div id="keybox" class="mode">
+    <label for="adminKey">访问口令</label>
+    <input id="adminKey" type="password" placeholder="输入后台访问口令" autocomplete="off" size="24">
+    <label for="cidFilter">客户ID</label>
+    <input id="cidFilter" type="text" placeholder="留空=全部" size="18">
+  </div>
+  <div class="sp"></div>
+  <button id="refreshBtn">刷新</button>
+  <button id="homeBtn" class="ghost">返回工作台</button>
+</header>
+
+<main>
+  <div id="msg" class="msg" style="display:none"></div>
+  <div class="bar">
+    <span class="stat">共 <b id="cnt">0</b> 条生成记录</span>
+    <span class="stat">每段消耗 <b>20 点</b></span>
+    <span class="stat" id="scopeStat"></span>
+  </div>
+  <table>
+    <thead><tr>
+      <th>生成时间</th><th>客户</th><th>模板</th><th>点数</th><th>成片</th>
+    </tr></thead>
+    <tbody id="rows"><tr><td colspan="5" class="none">加载中…</td></tr></tbody>
+  </table>
+  <div class="foot">成片文件保存在服务器，客户不下载也会保留。点击文件名可预览，点「下载」另存。</div>
+</main>
+
+<script>
+(function(){
+  var HOST = location.origin;
+  var modeSel = document.getElementById("modeSel");
+  var keybox = document.getElementById("keybox");
+  var adminKey = document.getElementById("adminKey");
+  var cidFilter = document.getElementById("cidFilter");
+  var rows = document.getElementById("rows");
+  var msg = document.getElementById("msg");
+  var cnt = document.getElementById("cnt");
+  var scopeStat = document.getElementById("scopeStat");
+
+  function say(text, isErr){
+    msg.textContent = text;
+    msg.className = "msg" + (isErr ? " err" : "");
+    msg.style.display = "block";
+  }
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function fmt(ts){
+    var d = new Date(ts * 1000);
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+
+      String(d.getDate()).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+
+      ":"+String(d.getMinutes()).padStart(2,"0");
+  }
+  function showMode(){
+    keybox.style.display = modeSel.value === "admin" ? "flex" : "none";
+  }
+  modeSel.addEventListener("change", showMode);
+
+  function load(){
+    msg.style.display = "none";
+    var isAdmin = modeSel.value === "admin";
+    var url = HOST + "/api/records";
+    var headers = {"Accept":"application/json"};
+    if (isAdmin){
+      var k = adminKey.value.trim();
+      if (!k){ say("请输入后台访问口令以查看全量记录。", true); return; }
+      headers["X-Studio-Key"] = k;
+      var cid = cidFilter.value.trim();
+      if (cid) url += "?cid=" + encodeURIComponent(cid);
+    }
+    fetch(url, {method:"GET", headers:headers, credentials:"same-origin"})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(res){
+        if (!res.ok || res.j.error){
+          if (res.j && res.j.error === "session_expired"){
+            say('未识别到登录身份：请在上方切换到「运营方（全量）」并输入访问口令，或先登录账号后查看「我的记录」。', true);
+          } else {
+            say("读取失败：" + (res.j.error || ("HTTP " + res.j)), true);
+          }
+          rows.innerHTML = '<tr><td colspan="5" class="none">无数据</td></tr>';
+          cnt.textContent = "0";
+          return;
+        }
+        var list = res.j.records || [];
+        scopeStat.textContent = res.j.scope === "all" ? "（运营方全量视图）" : "（客户本人视图）";
+        cnt.textContent = list.length;
+        if (!list.length){
+          rows.innerHTML = '<tr><td colspan="5" class="none">暂无生成记录</td></tr>';
+          return;
+        }
+        rows.innerHTML = list.map(function(it){
+          var vid = "";
+          if (it.video){
+            var u = it.video;
+            vid = '<div class="vid"><video controls preload="metadata" src="'+esc(u)+'"></video>'+
+                  '<a href="'+esc(u)+'?dl='+encodeURIComponent((it.template_label||"video")+".mp4")+'" download>下载</a></div>';
+          } else {
+            vid = '<span class="none">成片生成中 / 未关联</span>';
+          }
+          return '<tr>'+
+            '<td>'+fmt(it.created_ts)+'</td>'+
+            '<td><span class="cid">'+esc(it.email)+'</span><br><span class="none">'+esc(it.customer_id)+'</span></td>'+
+            '<td><span class="tpl">'+esc(it.template_label||it.template)+'</span></td>'+
+            '<td><span class="pts">-'+esc(it.points)+'</span></td>'+
+            '<td>'+vid+'</td>'+
+          '</tr>';
+        }).join("");
+      })
+      .catch(function(e){ say("网络错误：" + e, true); });
+  }
+
+  document.getElementById("refreshBtn").addEventListener("click", load);
+  cidFilter.addEventListener("keydown", function(e){ if(e.key==="Enter") load(); });
+  adminKey.addEventListener("keydown", function(e){ if(e.key==="Enter") load(); });
+  document.getElementById("homeBtn").addEventListener("click", function(){ location.href="/"; });
+
+  showMode();
+  load();
+})();
+</script>
+</body>
+</html>

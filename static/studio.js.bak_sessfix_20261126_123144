@@ -1,0 +1,2262 @@
+/* ============================================================================
+   Invitation Promo Studio · client flow (4 steps)
+   1) Choose Template  → browse by category / search / preview the sample video
+   2) Upload Photos    → upload product shots, apply the template's camera work
+   3) Choose Format    → the client picks the format (Vertical 9:16 / Square 1:1).
+                         The template's camera work is kept; the framing is
+                         re-composed for the chosen format (not cropped after).
+   4) Generate Video   → create / preview / download
+   Rendering uses the card-pan pipeline (detect pieces → plan moves → render).
+   All user-facing copy is English: this studio is shown to EU/US customers.
+   ========================================================================== */
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+const SESSION_KEY = "ips.project";
+
+const ST = {
+  project: null,
+  photos: [],        // [{path, file}]
+  labels: [],        // Collection Showcase: design name per photo (optional)
+  shots: [],         // Collection Showcase: per-photo camera plan ("detail" | "full" | "rotate" | "")
+  focuses: [],       // Collection Showcase: per-photo detail focus bbox [x0,y0,x1,y1] or null
+  skus: [],          // TOP 5 Countdown: text drawn beside the rank number (now the auto-recognized design name)
+  nums: [],          // TOP 5 Countdown: rank number per photo (optional, blank = auto countdown n..01)
+  caps: [],          // Collection Showcase & TOP 5 Countdown: per-photo free caption (optional)
+  paletteCols: null, // Color Palette Showcase: editable swatches [{name, hex}] from /api/palette-preview
+  _recogDone: {},     // paths already sent for auto-label recognition (avoid duplicate calls)
+  _recogPend: {},     // paths currently being recognized (show "Recognizing…" placeholder)
+  template: null,    // selected template object
+  ratio: "9:16",     // output format
+  busy: false,
+  rendered: false,
+  branding: null,    // {logo: <server path>, tagline: <string>} once a logo is uploaded
+  logoUploading: false,  // true while the logo file is being uploaded
+};
+
+/* The multi-photo template ("Collection Showcase"): 2-8 photos, one per design. */
+function isMultiTpl() {
+  return !!(ST.template && ST.template.pipeline === "multi_suite");
+}
+
+/* The scrolling-gallery template: 2-8 photos, no names, no text overlay. */
+function isScrollTpl() {
+  return !!(ST.template && ST.template.pipeline === "scroll_gallery");
+}
+/* The grid-showcase template: 4-8 photos, optional cover title. */
+function isFourGridTpl() {
+  return !!(ST.template && ST.template.pipeline === "four_grid");
+}
+
+/* The fast-cut template: 3-12 photos, static beat-cut montage. */
+function isFastCutTpl() {
+  return !!(ST.template && ST.template.pipeline === "fast_cut");
+}
+
+/* The cinematic template: 6-12 photos, beat-synced whoosh + rotation/pan mix. */
+function isCinematicTpl() {
+  return !!(ST.template && ST.template.pipeline === "cinematic_cut");
+}
+
+/* The three-screen template: 5-12 photos, stacked bands opening + per-photo move. */
+function isThreeScreenTpl() {
+  return !!(ST.template && ST.template.pipeline === "three_screen");
+}
+
+/* The TOP 5 Countdown template: N product photos, maroon rank number + auto-recognized design name. */
+function isTop5Tpl() {
+  return !!(ST.template && ST.template.pipeline === "top5");
+}
+
+/* The New Collection carousel: 2-8 photos, side cards smaller -> full size at centre. */
+function isCarouselTpl() {
+  return !!(ST.template && ST.template.pipeline === "carousel");
+}
+
+/* The Decor Showcase template: 3-12 photos, per-photo full-frame camera move; voiceover optional (step-4 toggle). */
+function isDecorTpl() {
+  return !!(ST.template && ST.template.pipeline === "decor_show");
+}
+
+/* Wedding Look Collage: 3-12 photos, two-column collage + auto colour swatches + singles. */
+function isCollageTpl() {
+  return !!(ST.template && ST.template.pipeline === "collage_palette");
+}
+function isBwRevealTpl() {
+  return !!(ST.template && ST.template.pipeline === "bw_reveal");
+}
+/* Moodboard Showcase: 5-20 photos — hero card + 4-tile grid + colour dots + rotation. */
+function isMoodboardTpl() {
+  return !!(ST.template && ST.template.pipeline === "moodboard_showcase");
+}
+
+/* ---------------- tiny helpers ---------------- */
+
+async function api(path, body) {
+  const opt = body
+    ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    : {};
+  const r = await fetch(path, opt);
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* non-JSON */ }
+  if (!r.ok || j.error) throw new Error(j.error || ("Request failed (" + r.status + ")"));
+  return j;
+}
+
+function toast(msg, ms = 3000) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(t._t);
+  t._t = setTimeout(() => (t.hidden = true), ms);
+}
+
+/* 2026-11-04 修复：全站多处调用 show() 但此前从未定义（logo / 音乐上传的
+   成功与失败提示一直静默抛 ReferenceError）。这里做一层兼容别名，错误提示
+   停留更久。 */
+function show(msg, isErr) { toast(msg, isErr ? 4600 : 2800); }
+
+const fmt1 = (n) => (Math.round(n * 10) / 10).toString();
+
+function pollJob(jid, onTick, maxMs = 26 * 60 * 1000) {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const timer = setInterval(async () => {
+      let job = null;
+      try { ({ job } = await api("/api/job?id=" + encodeURIComponent(jid))); } catch (e) { /* transient */ }
+      if (!job) return;
+      if (job.status === "running") {
+        if (Date.now() - t0 > maxMs) {
+          clearInterval(timer);
+          reject(new Error("This step took too long and was stopped. Please try again."));
+          return;
+        }
+        onTick && onTick(job);
+        return;
+      }
+      clearInterval(timer);
+      if (job.status === "error") reject(new Error(job.error || "The task failed"));
+      else resolve(job.result || {});
+    }, 1500);
+  });
+}
+
+function photoUrl(p) {
+  const file = p.replace(/\\/g, "/").split("/").pop();
+  return "/media/" + encodeURIComponent(ST.project.id) + "/uploads/" + encodeURIComponent(file);
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/* Template copy may use either "label" (new, English) or "zh" (legacy). */
+function moveLabel(m) { return m && (m.label || m.zh) ? (m.label || m.zh) : ""; }
+function movesText(t) {
+  return (t.moves || []).map(moveLabel).filter(Boolean).join(" · ");
+}
+
+/* ---------------- step navigation ---------------- */
+
+function goStep(n) {
+  [1, 2, 3, 4, 5].forEach((i) => { const el = $("#step" + i); if (el) el.hidden = i !== n; });
+  $$(".rail-item").forEach((el) => {
+    const k = +el.dataset.step;
+    el.classList.toggle("on", k === n);
+    el.classList.toggle("done", k < n);
+  });
+  renderAside();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/* ---------------- session / project ---------------- */
+
+async function openSession() {
+  let prev = null;
+  try { prev = sessionStorage.getItem(SESSION_KEY); } catch (e) {}
+  if (prev) {
+    try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+    api("/api/session/discard", { id: prev }).catch(() => {});
+  }
+  const { project } = await api("/api/project", { name: "Studio session" });
+  try { sessionStorage.setItem(SESSION_KEY, project.id); } catch (e) {}
+  ST.project = project;
+}
+
+async function startOver() {
+  ST.photos = [];
+  ST.template = null;
+  ST.capTplDefaulted = undefined;   // 2026-11-03：重开流程后 Captions 默认值按新模版重设
+  ST.ratio = RATIOS[0].id;
+  ST.ratioPinned = false;
+  ST.rendered = false;
+  ST.branding = null;
+  // reset step-4 branding UI (logo pill + tagline + toggle)
+  const ln = $("#logoName"); if (ln) ln.textContent = "No logo selected";
+  const lt = $("#brandTagline"); if (lt) lt.value = "";
+  const lh = $("#logoHint"); if (lh) { lh.hidden = true; lh.classList.remove("bad"); }
+  const bo = $("#brandOn"); if (bo) bo.checked = false;
+  const brf = $("#brandFields"); if (brf) brf.hidden = true;
+  $("#result").hidden = true;
+  $("#renderErr").hidden = true;
+  $("#renderBox").hidden = false;
+  $("#s4Title").textContent = "Creating Your Video";
+  $("#tplPick").innerHTML = "";
+  renderPhotos();
+  renderTplChips();
+  renderGrid();
+  updateTplSelection();
+  renderRatios();
+  goStep(1);
+  await openSession();
+}
+
+/* ============================================================================
+   STEP 1 · template library
+   ========================================================================== */
+
+let TPL_ALL = { categories: [], templates: [] };
+let TPL_CAT = "all";
+let TPL_Q = "";
+
+async function loadTemplates() {
+  try {
+    TPL_ALL = await api("/api/templates");
+  } catch (e) {
+    TPL_ALL = { categories: [], templates: [] };
+  }
+  renderTplChips();
+  renderGrid();
+  // Only one template in the library: select it, and hide the category/search bar
+  // (nothing to filter). Two or more → the bar comes back on its own.
+  const list = TPL_ALL.templates || [];
+  const bar = document.querySelector(".tpl-bar");
+  const search = document.querySelector(".tpl-search");
+  if (bar) bar.style.display = list.length <= 1 ? "none" : "";
+  if (search) search.style.display = list.length <= 1 ? "none" : "";
+  if (list.length === 1 && (!ST.template || ST.template.id !== list[0].id)) {
+    chooseTemplate(list[0].id);
+  }
+}
+
+function renderTplChips() {
+  const cats = TPL_ALL.categories && TPL_ALL.categories.length
+    ? TPL_ALL.categories
+    : [{ id: "all", name: "All" }];
+  $("#tplChips").innerHTML = cats.map((c) =>
+    '<button type="button" class="chip' + (c.id === TPL_CAT ? " on" : "") +
+    '" data-cat="' + esc(c.id) + '">' + esc(c.name) + "</button>"
+  ).join("");
+}
+
+function filteredTemplates() {
+  const q = TPL_Q.trim().toLowerCase();
+  return (TPL_ALL.templates || []).filter((t) => {
+    if (TPL_CAT !== "all" && t.category !== TPL_CAT) return false;
+    if (!q) return true;
+    const hay = (t.name + " " + (t.desc || "") + " " + styleName(t) + " " +
+      movesText(t)).toLowerCase();
+    return hay.indexOf(q) >= 0;
+  });
+}
+
+/* Template style label shown as a tag on the template card. */
+function styleName(t) {
+  const s = (TPL_ALL.styles || []).find((x) => x.id === t.style);
+  return s ? s.name : "";
+}
+
+function renderGrid() {
+  const list = filteredTemplates();
+  const grid = $("#tplGrid");
+  grid.classList.toggle("single", list.length === 1);
+  if (!list.length) {
+    grid.innerHTML = '<div class="tpl-empty">No template matches that. Try another category or search term.</div>';
+    return;
+  }
+  grid.innerHTML = list.map((t) => {
+    const sel = ST.template && ST.template.id === t.id;
+    return (
+      '<article class="tpl-card' + (sel ? " sel" : "") + '" data-id="' + esc(t.id) + '">' +
+        '<div class="tpl-thumb" data-act="preview" data-id="' + esc(t.id) + '">' +
+          // 2026-11-23 修复：卡片默认只渲染海报 <img>（秒开、不发黑）。
+          // 之前这里直接渲染 <video src=cover preload=metadata>，14 张卡片首屏同时
+          // 拉取封面视频，把浏览器每域名 ~6 个的并发连接池占满，排在后面的模板
+          // （含 hybrid_ai）永远拿不到连接 → 封面一直转圈「加载视频缓存」。
+          // 视频改为悬停时由 lazyPlayThumb() 按需创建，与 CSS .tpl-thumb img 配套。
+          '<img src="' + esc(t.poster || t.cover) + '" alt="" loading="lazy">' +
+          '<button class="tpl-play" data-act="preview" data-id="' + esc(t.id) + '" type="button" aria-label="Preview">▷</button>' +
+          (sel ? '<span class="tpl-check">✓ Selected</span>' : "") +
+        '</div>' +
+        '<div class="tpl-body">' +
+          '<div class="tpl-head">' +
+            '<h4>' + esc(t.name) + "</h4>" +
+            (styleName(t) ? '<span class="tpl-style s-' + esc(t.style || "") + '">' + esc(styleName(t)) + "</span>" : "") +
+            '<span class="tpl-moves">' + esc(movesText(t)) + "</span>" +
+          "</div>" +
+          '<p class="tpl-desc">' + esc(t.desc || "") + "</p>" +
+          // 说明区不再放「Preview」按钮（用户 2026-10-14）：封面本身就是预览——
+          // 悬停即静音播放，点封面可放大看（灯箱）。这里只留「选择」这一个动作。
+          '<div class="tpl-actions">' +
+            '<button class="tpl-btn solid" data-act="choose" data-id="' + esc(t.id) + '" type="button">' + (sel ? "Selected" : "Use Template") + "</button>" +
+          "</div>" +
+        "</div>" +
+      "</article>"
+    );
+  }).join("");
+}
+
+function chooseTemplate(id) {
+  const t = (TPL_ALL.templates || []).find((x) => x.id === id);
+  if (!t) return;
+  const changed = !ST.template || ST.template.id !== t.id;
+  ST.template = t;
+  // A template carries the format it is framed for; adopting it when the
+  // selection actually changes keeps the client's own pick from being reset.
+  // (defaultRatio may still answer 1:1 when every photo is square.)
+  if (changed) { ST.ratio = defaultRatio(); ST.ratioPinned = false; }
+  renderGrid();
+  updateTplSelection();
+  renderRatios();
+  scrollToUseBtn();
+}
+
+/* 2026-11-10 user①：选好模板后，平滑滚动到页面底部的「Next」按钮并脉冲高亮，
+   引导用户点击进入下一步，不必自己翻找按钮。 */
+function scrollToUseBtn() {
+  const btn = $("#btnToStep2");
+  if (!btn || btn.disabled) return;
+  requestAnimationFrame(() => {
+    try { btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+    btn.classList.remove("pulse-on");
+    void btn.offsetWidth;          // 强制 reflow，确保动画重新触发
+    btn.classList.add("pulse-on");
+    setTimeout(() => btn.classList.remove("pulse-on"), 2800);
+  });
+}
+
+function updateTplSelection() {
+  const ok = !!ST.template;
+  $("#btnToStep2").disabled = !ok;
+  $("#step1Hint").textContent = ok
+    ? "Selected: " + ST.template.name
+    : "Pick a template first.";
+}
+
+/* 2026-11-12 用户①：悬停按需加载示例视频（封面图优先的另一半）。
+   首次悬停才创建 <video src=cover>（muted、不预载元数据以外内容），
+   移出即 pause + 销毁，还原海报 <img>——同一样片反复悬停由浏览器缓存兜底。 */
+function lazyPlayThumb(thumb) {
+  if (!thumb || thumb.querySelector("video")) return;
+  const id = thumb.dataset.id;
+  const t = (TPL_ALL.templates || []).find((x) => x.id === id);
+  if (!t || !t.cover) return;
+  const img = thumb.querySelector("img");
+  const v = document.createElement("video");
+  v.src = t.cover;
+  v.muted = true;
+  v.loop = true;
+  v.playsInline = true;
+  v.setAttribute("playsinline", "");
+  v.addEventListener("loadeddata", () => {
+    // 视频真正有画面了才盖过海报，避免半加载状态发黑
+    if (img) img.style.visibility = "hidden";
+    v.play().catch(() => {});
+  });
+  thumb.insertBefore(v, thumb.firstChild);
+}
+function stopThumbVideo(thumb) {
+  if (!thumb) return;
+  const v = thumb.querySelector("video");
+  if (v) {
+    try { v.pause(); } catch (e) {}
+    v.remove();
+  }
+  const img = thumb.querySelector("img");
+  if (img) img.style.visibility = "";
+}
+
+function openTplPreview(id) {
+  const t = (TPL_ALL.templates || []).find((x) => x.id === id);
+  if (!t) return;
+  const v = $("#tplLbVideo");
+  try { v.pause(); } catch (e) {}
+  v.removeAttribute("src");
+  try { v.load(); } catch (e) {}
+  v.src = t.cover;
+  // Opened by a click, so the browser allows playback with sound (the sample has music).
+  // Should autoplay-with-audio ever be refused, fall back to a muted play rather than nothing.
+  v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+  $("#tplLbCap").textContent = t.name + (movesText(t) ? " · " + movesText(t) : "");
+  $("#tplLightbox").hidden = false;
+}
+
+function closeTplPreview() {
+  const v = $("#tplLbVideo");
+  try { v.pause(); } catch (e) {}
+  v.removeAttribute("src");
+  try { v.load(); } catch (e) {}
+  $("#tplLightbox").hidden = true;
+}
+
+/* 2026-11-03 · 上传照片点击放大预览（lightbox）
+   2026-11-12 用户：放大后还要能「再次放大」——滚轮 / +− 按钮连续缩放（1x~5x），
+   放大后可拖拽平移，双击在 1x 与 2x 间切换，Fit 复位。 */
+const PHOTO_ZOOM_MIN = 1, PHOTO_ZOOM_MAX = 5, PHOTO_ZOOM_STEP = 0.25;
+let _pz = 1, _ppx = 0, _ppy = 0, _pDrag = null;
+
+function applyPhotoZoom() {
+  const img = $("#photoLbImg");
+  if (img) {
+    img.style.transform = "translate(" + _ppx + "px," + _ppy + "px) scale(" + _pz + ")";
+    img.classList.toggle("zoomed", _pz > 1.001);
+  }
+  const lab = $("#photoZoomLabel");
+  if (lab) lab.textContent = Math.round(_pz * 100) + "%";
+}
+function setPhotoZoom(z) {
+  _pz = Math.min(PHOTO_ZOOM_MAX,
+    Math.max(PHOTO_ZOOM_MIN, Math.round(z * 100) / 100));
+  if (_pz <= PHOTO_ZOOM_MIN + 0.001) { _ppx = 0; _ppy = 0; }  // 回到 1x 归位
+  applyPhotoZoom();
+}
+function resetPhotoZoom() {
+  _pz = PHOTO_ZOOM_MIN; _ppx = 0; _ppy = 0; _pDrag = null;
+  applyPhotoZoom();
+}
+function openPhotoPreview(src) {
+  const lb = $("#photoLightbox");
+  if (!lb) return;
+  $("#photoLbImg").src = src;
+  resetPhotoZoom();
+  lb.hidden = false;
+}
+function closePhotoPreview() {
+  const lb = $("#photoLightbox");
+  if (!lb) return;
+  $("#photoLbImg").removeAttribute("src");
+  resetPhotoZoom();
+  lb.hidden = true;
+}
+function bindPhotoZoom() {
+  const vp = $("#photoLbViewport"), img = $("#photoLbImg");
+  if (!vp || !img) return;
+  vp.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    setPhotoZoom(_pz + (e.deltaY < 0 ? PHOTO_ZOOM_STEP : -PHOTO_ZOOM_STEP));
+  }, { passive: false });
+  const plus = $("#photoZoomIn"), minus = $("#photoZoomOut"), fit = $("#photoZoomReset");
+  if (plus) plus.addEventListener("click", () => setPhotoZoom(_pz + PHOTO_ZOOM_STEP));
+  if (minus) minus.addEventListener("click", () => setPhotoZoom(_pz - PHOTO_ZOOM_STEP));
+  if (fit) fit.addEventListener("click", resetPhotoZoom);
+  // 双击：1x ↔ 2x。刻意不绑「单击缩放」——单击与双击、拖拽都会互相抢事件。
+  img.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    setPhotoZoom(_pz > 1.001 ? PHOTO_ZOOM_MIN : 2);
+  });
+  img.addEventListener("pointerdown", (e) => {
+    _pDrag = { x: e.clientX, y: e.clientY, px: _ppx, py: _ppy,
+               moved: false, active: _pz > 1.001 };
+    if (!_pDrag.active) return;
+    img.classList.add("dragging");
+    try { img.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  img.addEventListener("pointermove", (e) => {
+    if (!_pDrag || !_pDrag.active) return;
+    const dx = e.clientX - _pDrag.x, dy = e.clientY - _pDrag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) _pDrag.moved = true;
+    _ppx = _pDrag.px + dx; _ppy = _pDrag.py + dy;
+    applyPhotoZoom();
+  });
+  const endDrag = () => img.classList.remove("dragging");
+  img.addEventListener("pointerup", endDrag);
+  img.addEventListener("pointercancel", endDrag);
+}
+
+/* ============================================================================
+   STEP 2 · upload photos (apply the template's camera work)
+   ========================================================================== */
+
+async function gotoStep2() {
+  if (!ST.template) { toast("Pick a template first."); return; }
+  const t = ST.template;
+  const isCut = t.pipeline === "card_pan";
+  const isMulti = t.pipeline === "multi_suite";
+  const isScroll = t.pipeline === "scroll_gallery";
+  const isFour = isFourGridTpl();
+  const isFast = isFastCutTpl();
+  const isCin = isCinematicTpl();
+  const isThree = isThreeScreenTpl();
+  const isTop5 = isTop5Tpl();
+  const isCar = isCarouselTpl();
+  const isCol = isCollageTpl();
+  $("#tplPick").innerHTML =
+    '<div class="pick">' +
+      '<div class="pick-cover"><video src="' + esc(t.cover) + '" muted loop playsinline></video></div>' +
+      '<div class="pick-info">' +
+        '<div class="pick-name">' + esc(t.name) +
+          (styleName(t) ? ' <span class="tpl-style s-' + esc(t.style || "") + '">' + esc(styleName(t)) + "</span>" : "") +
+        "</div>" +
+        '<div class="pick-moves">' + esc(movesText(t)) + "</div>" +
+        '<div class="pick-note">' + (isCut
+          ? "Add 1\u20138 photos of the same invitation design. Include a full view and close-ups of details you\u2019d like to highlight."
+          : isMulti
+          ? "Add 2\u20138 photos, one per design. Name each design under its photo."
+          : isScroll
+          ? "Add 6 or more photos of your stationery. They scroll in two columns for a clean, text-free showcase."
+          : isFour
+          ? "Add 4\u20138 photos of your stationery. The first four open as a grid, then each piece is shown one by one."
+          : isFast
+          ? "Add 5 or more photos. Each plays in quick, beat-synced cuts."
+          : isCin
+          ? "Add 6\u201312 photos. The film-style cut rotates and pans across your designs on the beat."
+        : isThree
+        ? "Add 5 or more photos. An opening reveals three panels, then each photo is shown in turn."
+        : isTop5
+          ? "Add 3 or more photos. A countdown opens with a title, then each photo is ranked with its name."
+          : isCar
+          ? "Add 2\u20138 photos, one per design. Each slides to the centre while the rest wait at the edges."
+          : isCol
+          ? "Add 3\u201312 photos of your stationery. We pair them with colour swatches pulled from your photos, then reveal each piece."
+          : "Add your photos and the template's camera work is applied automatically.") + "</div>" +
+      "</div>" +
+    "</div>";
+  const pv = $("#tplPick").querySelector("video");
+  if (pv) pv.play().catch(() => {});
+  const tw = $("#t5TitleWrap");            // opening title fields: TOP 5 only
+  if (tw) tw.hidden = !isTop5;
+  const cw = $("#carFieldsWrap");          // carousel text fields: New Collection only
+  if (cw) cw.hidden = !isCar;
+  goStep(2);
+}
+
+const SHOTS = [
+  { v: "detail", t: "Detail" },
+  { v: "full",   t: "Full" },
+  { v: "rotate", t: "Rotate" },
+];
+
+function renderPhotos() {
+  const multi = isMultiTpl();
+  const top5 = isTop5Tpl();
+  // keep ST.labels / ST.shots / ST.focuses aligned with ST.photos no matter how the list changed
+  while (ST.labels.length < ST.photos.length) ST.labels.push("");
+  ST.labels.length = ST.photos.length;
+  while (ST.shots.length < ST.photos.length) ST.shots.push("");
+  ST.shots.length = ST.photos.length;
+  while (ST.focuses.length < ST.photos.length) ST.focuses.push(null);
+  ST.focuses.length = ST.photos.length;
+  while (ST.skus.length < ST.photos.length) ST.skus.push("");
+  ST.skus.length = ST.photos.length;
+  while (ST.nums.length < ST.photos.length) ST.nums.push("");
+  ST.nums.length = ST.photos.length;
+  while (ST.caps.length < ST.photos.length) ST.caps.push("");
+  ST.caps.length = ST.photos.length;
+  const n = ST.photos.length;
+  $("#photos").innerHTML = ST.photos.map((p, i) => {
+    return '<div class="photo" data-i="' + i + '" draggable="true">' +
+      '<div class="thumb"><img data-act="preview" data-i="' + i + '" title="Click to preview" src="' + photoUrl(p.path) + '" alt="" loading="lazy">' +
+        '<span class="ord">' + (i + 1) + "</span>" +
+        '<span class="grip" draggable="true" data-act="grip" data-i="' + i + '" title="Drag to reorder" aria-label="Drag to reorder">\u283F</span>' +
+        '<div class="hov">' +
+          '<button class="ic" data-act="move-left" data-i="' + i + '" title="Move left" aria-label="Move left"' + (i === 0 ? " disabled" : "") + '>&#8592;</button>' +
+          '<button class="ic" data-act="remove" data-i="' + i + '" title="Remove" aria-label="Remove">&times;</button>' +
+          '<button class="ic" data-act="move-right" data-i="' + i + '" title="Move right" aria-label="Move right"' + (i === n - 1 ? " disabled" : "") + '>&#8594;</button>' +
+        "</div>" +
+      "</div>" +
+      // 2026-11-06 user: Collection Showcase keeps only the auto-recognized design
+      // name (Detail/Full/Rotate + per-photo Caption inputs removed — the camera
+      // plan and captions now run fully automatic). TOP 5 Countdown uses the same
+      // auto-recognized name in place of the Style SKU / Rank / Caption inputs.
+      (multi || top5
+        ? '<input class="name-input" data-act="label" data-i="' + i + '" type="text" maxlength="40" ' +
+          'placeholder="' + (ST._recogPend[p.path] ? "Recognizing design name\u2026"
+            : (multi ? "Design name (optional)" : "Design name (auto)")) + '" value="' + esc(ST.labels[i] || "") + '">'
+        : "") +
+    "</div>";
+  }).join("");
+  syncT5Title();
+  renderAside();
+  updateGenBtn();
+}
+
+function setShot(i, v) {
+  if (isNaN(i)) return;
+  // click the active one again → clear back to "auto" (let the template decide)
+  ST.shots[i] = (ST.shots[i] === v) ? "" : v;
+  renderPhotos();
+}
+
+/* Opening title auto-numbering (2026-11-06 user): the TOP N headline follows the
+   photo count (6 photos → "TOP 6") until the customer types their own wording. */
+function syncT5Title() {
+  const el = $("#t5Title");
+  if (!el) return;
+  if (!el._manHook) {
+    el._manHook = true;
+    el.addEventListener("input", () => { el.dataset.auto = "0"; });
+  }
+  const n = ST.photos.length;
+  if (!n) return;
+  if (el.dataset.auto === "0") return;                    // customer typed custom text
+  if (el.value.trim() && !/^TOP\s*\d+$/i.test(el.value.trim())) { el.dataset.auto = "0"; return; }
+  const want = "TOP " + n;
+  if (el.value !== want) el.value = want;
+  el.dataset.auto = "1";
+}
+
+/* 2026-11-06 user: Collection Showcase / Top Picks Countdown 的「下一步」按钮
+   必须等自动识别设计名返回后才可点击 —— ST._recogPend 有值说明识别请求在飞。 */
+function recogPending() {
+  if (!isMultiTpl() && !isTop5Tpl()) return false;
+  return Object.keys(ST._recogPend || {}).length > 0;
+}
+
+function updateGenBtn() {
+  const multi = isMultiTpl();
+  const scroll = isScrollTpl();
+  const four = isFourGridTpl();
+  const fastcut = isFastCutTpl();
+  const cin = isCinematicTpl();
+  const three = isThreeScreenTpl();
+  const top5 = isTop5Tpl();
+  const car = isCarouselTpl();
+  const decor = isDecorTpl();
+  const collage = isCollageTpl();
+  const bw = isBwRevealTpl();
+  const mood = isMoodboardTpl();
+  const ba = ST.template && ST.template.pipeline === "before_after";
+  const zp = ST.template && ST.template.pipeline === "zoom_punch";
+  const hybrid = ST.template && ST.template.pipeline === "hybrid_ai";
+  const n = ST.photos.length;
+  // Per-template minimums must match the server endpoints:
+  //   multi-suite (Collection)  → 2  (server.py /api/multi-suite: len(srcs) < 2)
+  //   scroll-gallery (Colour)    → 6  (server.py /api/scroll-gallery: len(srcs) < 6)
+  //   four-grid (Grid)           → 4  (server.py /api/four-grid: len(srcs) < 4)
+  //   fast-cut (Fast Cut)        → 5  (server.py /api/fast-cut: len(srcs) < 5)
+  //   cinematic-cut (Cinematic)  → 6  (server.py /api/mix-cut: len(srcs) < 6)
+  //   three-screen (Three-Screen)→ 5  (server.py /api/three-screen: len(srcs) < 5)
+  //   carousel (New Collection)  → 2  (server.py /api/carousel: len(srcs) < 2)
+  //   decor-show (Decor)         → 3  (server.py /api/decor-show: len(srcs) < 3)
+  //   collage-palette (Wedding Look) → 3  (server.py /api/collage-palette: len(srcs) < 3, no cap)
+  //   bw_reveal (B&W->Color Reveal) → 10  (server.py /api/bw-reveal: len(srcs) < 10, no cap)
+  //   zoom_punch (Dynamic Collection Showcase) → 3 (server.py /api/zoom-punch: len(srcs) < 3, cap 99)
+  //   moodboard (Moodboard Showcase) → 5  (server.py /api/moodboard-showcase: len(srcs) < 5, cap 20)
+  const min = hybrid ? 2 : zp ? 3 : multi ? 2 : scroll ? 6 : four ? 4 : fastcut ? 10 : cin ? 6 : three ? 5 : top5 ? 3 : car ? 2 : decor ? 3 : collage ? 3 : bw ? 10 : mood ? 5 : 1;
+  const recog = recogPending();
+  $("#btnToStep3").disabled = n === 0 || ST.busy || n < min || recog;
+  let eta = "";
+  if (n) {
+    eta = n + (n > 1 ? " photos" : " photo") +
+      " \u00B7 using the \u201C" + (ST.template ? ST.template.name : "") + "\u201D template";
+    if (multi && n < 2) eta += " \u00B7 add one more photo to continue";
+    if (scroll && n < 6) eta += " \u00B7 add at least 6 photos to continue";
+    if (four && n < 4) eta += " \u00B7 add at least 4 photos to continue";
+    if (fastcut && n < 5) eta += " \u00B7 add at least 5 photos to continue";
+    if (cin && n < 6) eta += " \u00B7 add at least 6 photos to continue";
+    if (three && n < 5) eta += " \u00B7 add at least 5 photos to continue";
+    if (top5 && n < 3) eta += " \u00B7 add at least 3 photos to continue";
+    if (car && n < 2) eta += " \u00B7 add one more photo to continue";
+    if (collage && n < 3) eta += " \u00B7 add at least 3 photos to continue";
+    if (bw && n < 10) eta += " \u00B7 add at least 10 photos to continue";
+    if (mood && n < 5) eta += " \u00B7 add at least 5 photos to continue (1 hero card + 4 grid tiles)";
+    if (mood && n >= 5) eta += " \u00B7 about " + fmt1(8.7 + Math.min(n, 8) * 1.5 + 1.5) + " seconds";
+    if (zp && n < 3) eta += " \u00B7 add at least 3 photos to continue";
+    if (recog) eta += " \u00B7 recognizing design names\u2026";
+    if ((multi || four) && n >= 8) eta += " \u00B7 maximum reached";
+    if (cin && n >= 12) eta += " \u00B7 maximum reached";
+    // Fast Cut: every photo plays three times at one beat (0.592s) each —
+    // show the auto-growing duration right here so the count/length link is clear.
+    if (fastcut) eta += " \u00B7 about " + fmt1(n * 3 * 0.592) + " seconds";
+    // Cinematic Cut: duration scales with photo count (4.8 + 0.56×N s), cut to the beat.
+    if (cin && n >= 6) eta += " \u00B7 about " + fmt1(4.8 + 0.56 * n) + " seconds, cut to the beat";
+  }
+  $("#eta").textContent = eta;
+}
+
+/* Upload pipeline: shrink each image in the browser (longest edge <= 2000px)
+   before upload so multi-megabyte phone photos don't saturate the network, and
+   push several files concurrently while revealing each thumbnail as it lands —
+   instead of stalling silently until the whole batch finishes. */
+async function pool(items, limit, worker) {
+  let i = 0;
+  const runners = [];
+  const next = async () => {
+    while (i < items.length) {
+      const idx = i++;
+      await worker(items[idx], idx);
+    }
+  };
+  const n = Math.min(limit, items.length);
+  for (let k = 0; k < n; k++) runners.push(next());
+  await Promise.all(runners);
+}
+
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxDim = 2000;
+      let w = img.width, h = img.height;
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      const isPng = file.type === "image/png";
+      const mime = isPng ? "image/png" : "image/jpeg";
+      const q = isPng ? undefined : 0.92;
+      cv.toBlob((blob) => {
+        if (!blob) { reject(new Error("image compress failed")); return; }
+        resolve({ blob: blob, ext: isPng ? "png" : "jpg" });
+      }, mime, q);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("cannot decode image")); };
+    img.src = url;
+  });
+}
+
+async function uploadBlob(name, blob, ext) {
+  const stem = (name || "photo").replace(/\.[^.]+$/, "");
+  const fname = stem + "." + ext;
+  const url = "/api/upload?project=" + encodeURIComponent(ST.project.id) +
+    "&name=" + encodeURIComponent(fname) + "&kind=upload";
+  const r = await fetch(url, { method: "POST", body: blob });
+  const j = await r.json();
+  if (!r.ok || j.error) throw new Error(j.error || "Upload failed");
+  ST.project = j.project;
+  return j.entry;
+}
+
+function showUprog(text) {
+  const e = document.getElementById("uprog");
+  if (e) { e.textContent = text; e.hidden = false; }
+}
+function hideUprog() {
+  const e = document.getElementById("uprog");
+  if (e) e.hidden = true;
+}
+
+async function uploadOne(file) {
+  const c = await compressImage(file);
+  return uploadBlob(file.name, c.blob, c.ext);
+}
+
+async function addFiles(files) {
+  const list = Array.from(files || []).filter((f) => /^image\//.test(f.type));
+  if (!list.length) { toast("Please choose JPG or PNG images."); return; }
+  // 99 = effectively unlimited (matches card_pan / carousel / decor / collage).
+  // Wedding Color Inspiration / Beat-Synced / Three-Panel / Top Picks now take
+  // any number of photos (user: no upper limit). Collection & Grid keep the 8 cap.
+  const cap = (isMultiTpl() || isFourGridTpl()) ? 8 : 99;
+  ST.busy = true;
+  updateGenBtn();
+  let accepted = ST.photos.length, skipped = 0, done = 0;
+  const total = list.length;
+  const worker = async (f) => {
+    if (accepted >= cap) { skipped++; return; }
+    accepted++;
+    try {
+      showUprog("Preparing " + (done + skipped + 1) + " / " + total + "...");
+      const e = await uploadOne(f);
+      // Record the photo's native aspect so the format step can keep 1:1
+      // sessions square (allPhotosSquare / defaultRatio).
+      const dim = await new Promise((res) => {
+        const im = new Image();
+        im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+        im.onerror = () => res(null);
+        im.src = photoUrl(e.path);
+      });
+      ST.photos.push({ path: e.path, file: e.file, dim: dim });
+      ST.labels.push("");
+      ST.caps.push("");
+      done++;
+      showUprog("Uploading " + done + " / " + total + "...");
+      renderPhotos();
+    } catch (err) {
+      accepted--;
+      toast("Could not upload " + f.name + ": " + err.message);
+    }
+  };
+  await pool(list, 4, worker);
+  ST.busy = false;
+  hideUprog();
+  // Newly uploaded photos may change the auto default (all-square → 1:1),
+  // but never override a format the user picked by hand.
+  if (!ST.ratioPinned) ST.ratio = defaultRatio();
+  renderPhotos();
+  updateGenBtn();
+  if (skipped) toast("You can add up to " + cap + " photos for this template - the rest were skipped.");
+  if (isMultiTpl() || isTop5Tpl()) recognizeLabels();
+}
+
+/* Auto-fill design names for the multi-photo template: after upload, ask the
+   backend to read each photo (printed text first, then a semantic tag) and drop
+   the result into the matching name input — without overwriting what the user
+   has already typed. */
+async function recognizeLabels() {
+  if (!isMultiTpl() && !isTop5Tpl()) return;
+  const need = [];
+  ST.photos.forEach((p, i) => {
+    if (!ST.labels[i] && !ST._recogDone[p.path]) {
+      need.push({ i: i, path: p.path });
+      ST._recogDone[p.path] = true; // reserve so we don't fire duplicate requests
+    }
+  });
+  if (!need.length) return;
+  // mark pending → re-render so empty inputs show a "Recognizing…" placeholder
+  // (visual model takes ~10s per batch; without the hint the empty box reads
+  //  as "the feature isn't live" — user feedback 2026-10-15)
+  need.forEach((x) => { ST._recogPend[x.path] = true; });
+  renderPhotos();
+  updateGenBtn();          // 识别中 → 禁用「下一步」
+  try {
+    const { job } = await api("/api/recognize-labels", { srcs: need.map((x) => x.path) });
+    const res = await pollJob(job, () => {});
+    const labels = (res && res.labels) || [];
+    const shots = (res && res.shots) || [];
+    const focuses = (res && res.focuses) || [];
+    labels.forEach((lab, k) => {
+      const it = need[k];
+      if (!it) return;
+      if (lab && !ST.labels[it.i]) {
+        ST.labels[it.i] = lab;
+        const inp = document.querySelector('.name-input[data-i="' + it.i + '"]');
+        if (inp) inp.value = lab;
+      }
+      // shot plan + detail focus: only auto-fill empty slots (don't clobber manual edits)
+      if (shots[k] && !ST.shots[it.i]) ST.shots[it.i] = shots[k];
+      if (focuses[k] && !ST.focuses[it.i]) ST.focuses[it.i] = focuses[k];
+    });
+  } catch (e) {
+    need.forEach((x) => { delete ST._recogDone[x.path]; }); // allow retry on failure
+  } finally {
+    need.forEach((x) => { delete ST._recogPend[x.path]; });
+    renderPhotos();
+    updateGenBtn();        // 识别结束（成功或失败）→ 恢复按钮
+  }
+}
+
+function removePhoto(i) {
+  ST.photos.splice(i, 1);
+  ST.labels.splice(i, 1);
+  ST.caps.splice(i, 1);
+  // Removing a photo may change the auto default (e.g. the only non-square
+  // photo is gone) — re-apply unless the user pinned a format by hand.
+  if (!ST.ratioPinned) ST.ratio = defaultRatio();
+  renderPhotos();
+  updateGenBtn();
+}
+
+/* Reorder uploaded photos. `from` and `to` are array indices; every parallel
+   array (labels / shots / focuses) is shifted in lock-step so the name inputs
+   and camera-plan choices stay glued to their image. Reordering matters most for
+   Grid Showcase, where the FIRST 4 photos become the 2×2 grid (and their
+   position decides which slot each lands in). */
+function reorderPhoto(from, to) {
+  if (from === to || from < 0 || to < 0 || from >= ST.photos.length || to >= ST.photos.length) return;
+  const move = (arr) => { const it = arr.splice(from, 1)[0]; arr.splice(to, 0, it); };
+  move(ST.photos); move(ST.labels); move(ST.shots); move(ST.focuses); move(ST.caps);
+  renderPhotos();
+}
+
+/* Move a photo one slot left/right (touch-friendly fallback for drag). */
+function movePhoto(i, dir) {
+  reorderPhoto(i, i + dir);
+}
+
+/* ============================================================================
+   STEP 3 · choose format
+   The camera work comes from the template; the format is the client's choice.
+   The format is NOT a crop of the finished video — the pipeline re-composes the
+   framing for the chosen aspect ratio (source of truth: core/card_pan.py RATIOS).
+   ========================================================================== */
+
+const RATIOS = [
+  { id: "9:16", api: "9x16", shape: "r9-16", name: "Vertical · 9:16",
+    note: "Recommended for Reels, Stories, and TikTok." },
+  { id: "1:1",  api: "1x1",  shape: "r1-1",  name: "Square · 1:1",
+    note: "Ideal for square feed posts and product showcases." },
+];
+
+/* Every uploaded photo is (near) square → keep the photos' native 1:1 framing
+   instead of re-framing them into the template's vertical format (user rule
+   2026-11-03: 1:1 photos in, 1:1 video out — the ratio is not changed). */
+function allPhotosSquare() {
+  const ps = ST.photos;
+  if (!ps.length) return false;
+  return ps.every((p) => {
+    if (!p.dim || !p.dim.w || !p.dim.h) return false;
+    const a = p.dim.w / p.dim.h;
+    return a >= 0.96 && a <= 1.04;
+  });
+}
+
+/* Format the template is framed for (templates.json → recommended_ratio).
+   Square-photo sessions override it with 1:1 so nothing gets cropped. */
+function defaultRatio() {
+  if (allPhotosSquare()) return "1:1";
+  const r = ST.template && ST.template.recommended_ratio;
+  return RATIOS.some((x) => x.id === r) ? r : RATIOS[0].id;
+}
+
+/* UI format id → pipeline format id ("9:16" → "9x16"). */
+function ratioApi(id) {
+  const r = RATIOS.find((x) => x.id === id);
+  return (r || RATIOS[0]).api;
+}
+
+/* step 2 → step 3 */
+function gotoStep3() {
+  if (!ST.photos.length) { toast("Add a photo first."); return; }
+  if (recogPending()) {
+    toast("Recognizing design names \u2014 the next step unlocks in a few seconds.");
+    return;
+  }
+  // Re-apply the auto default unless the user pinned a format by hand
+  // (photo set may have changed since the last visit, e.g. all-square → 1:1).
+  if (!ST.ratioPinned || !RATIOS.some((x) => x.id === ST.ratio)) {
+    ST.ratio = defaultRatio();
+  }
+  renderRatios();
+  goStep(3);
+}
+
+/* step 3 → step 4 */
+function gotoStep4() {
+  // Keep the format the user picked in step 3; only fall back to the template
+  // default when the current pick is somehow invalid (fixes 1:1 reverting to 9:16).
+  if (!RATIOS.some((x) => x.id === ST.ratio)) ST.ratio = defaultRatio();
+  renderStep4();
+  goStep(4);
+}
+
+function renderRatios() {
+  $("#ratios").innerHTML = RATIOS.map((r) =>
+    '<button type="button" class="ratio' + (r.id === ST.ratio ? " on" : "") +
+    '" data-ratio="' + esc(r.id) + '" aria-pressed="' + (r.id === ST.ratio) + '">' +
+      '<span class="rshape ' + r.shape + '" aria-hidden="true"></span>' +
+      '<span class="rname">' + esc(r.name) + (r.id === defaultRatio() ? " \u00B7 Recommended" : "") + "</span>" +
+      '<span class="rdesc">' + esc(r.note) + "</span>" +
+    "</button>"
+  ).join("");
+  const tag = $("#ratioKeep");
+  if (tag) {
+    tag.textContent = !ST.template ? "" : allPhotosSquare()
+      ? "All your photos are square, so Square \u00B7 1:1 is pre-selected \u2014 " +
+        "they keep their full 1:1 picture. Prefer vertical? Just pick 9:16."
+      : "We'll adapt your photos to the selected format. Check the preview to make sure important details stay visible.";
+  }
+}
+
+/* step 4 · captions & voiceover toggle state */
+function capOn() {
+  return !!($("#capOn") && $("#capOn").checked);
+}
+
+function voPayload() {
+  if (!$("#voOn") || !$("#voOn").checked) return null;
+  return {
+    on: true,
+    selling: (($("#voSelling") && $("#voSelling").value.trim()) || ""),
+    cta: (($("#voCta") && $("#voCta").value) || "view"),
+  };
+}
+
+function renderStep4() {
+  const t = ST.template;
+  const n = ST.photos.length;
+  // captions fields depend on the template's pipeline
+  const pipe = t ? t.pipeline : "";
+  const cin = pipe === "cinematic_cut";
+  const three = pipe === "three_screen";
+  const bw = pipe === "bw_reveal";
+  // Cinematic Cut: length scales with photo count (4.8 + 0.56×N s) — show it live.
+  // Three-Screen: opener 8 beats + per-photo 3 beats (last 4) at 0.5923s/beat.
+  const secs = cin ? Math.round((4.8 + 0.56 * n) * 10) / 10
+                   : three ? Math.round((3 * n + 9) * 0.5923 * 10) / 10
+                   : bw ? Math.round(Math.min(12.37, 2 * n * 0.55) * 10) / 10
+                   : ((t && t.target_secs) || 15);
+  const info = $("#voTplInfo");
+  if (info) {
+    info.textContent = (t ? t.name + " \u00B7 " : "") +
+      n + (n === 1 ? " photo" : " photos") + " \u00B7 " +
+      secs + "-second video \u00B7 " + (ST.ratio || "9:16");
+  }
+  // Cinematic Cut now offers captions & voiceover like the other templates —
+  // the standard step-4 heading/lede applies to it too (set for every template).
+  const eb = document.querySelector("#step4 .eyebrow");
+  const h2 = document.querySelector("#step4 h2");
+  const ld = document.querySelector("#step4 .lede");
+  if (eb && h2 && ld) {
+    eb.textContent = "04 / Customize Your Video";
+    h2.textContent = "Customize Your Video";
+    ld.textContent = "Add text, voiceover, music, and your logo. All optional.";
+  }
+  // Reflect the Captions / Voiceover toggle state on their subcards.
+  // 2026-11-03：有原生文字设计的模版（含文字在 step2 的 TOP5/Carousel），
+  // 字体字号按模版设计 → 隐藏客户字体选择与预览；无文字模版才可选字体。
+  const NATIVE_FONT_TPL = ["multi_suite", "four_grid", "collage_palette",
+                           "fast_cut", "top5", "carousel", "bw_reveal",
+                           "zoom_punch", "before_after"];
+  const nativeFont = NATIVE_FONT_TPL.indexOf(pipe) >= 0;
+  // 2026-11-11 用户②：Wedding Signage & Decor(decor_show) 字体入口对齐 Beat-Synced——
+  // 显示字体下拉（默认斜体 CG），让客户可选 serif/light/script；不再隐藏。
+  // 所以字体选择只在「有原生文字设计的模版」隐藏，其余（含 decor_show / card_pan /
+  // cinematic_cut）一律显示下拉。
+  const hideFontPick = nativeFont;
+  // 2026-11-03：Captions 默认开启**只针对有原生文字设计的模版**；无文字模版
+  // （card_pan/scroll_gallery/three_screen/decor_show）默认关。仅在该模版首次
+  // 进入 step4 时设默认值，不覆盖客户手动改过的开关（换模版则重设）。
+  // 注意：默认值必须先于下方 hidden 计算 —— 否则首次进入时 capFields 仍按
+  // 旧开关状态隐藏，模版有文字也不显示下方内容。
+  const co = $("#capOn");
+  if (co && ST.capTplDefaulted !== pipe) {
+    co.checked = nativeFont;
+    ST.capTplDefaulted = pipe;
+  }
+  const sc = $("#subCaptions"); if (sc) sc.classList.toggle("on", capOn());
+  const sv = $("#subVoiceover"); if (sv) sv.classList.toggle("on", !!($("#voOn") && $("#voOn").checked));
+  const fm = $("#capFieldsMulti"); if (fm) fm.hidden = pipe !== "multi_suite";
+  const fg = $("#capFieldsGrid"); if (fg) fg.hidden = pipe !== "four_grid";
+  const flook = $("#capFieldsLook"); if (flook) flook.hidden = pipe !== "collage_palette";
+  // 2026-11-05：Color Palette 色板编辑器——进入 step4 时按当前照片刷新
+  if (pipe === "collage_palette") refreshPalettePanel(false);
+  // 2026-11-25：Moodboard 色块编辑器（卡角四个圆点可改色）
+  const fmb = $("#subMbColors"); if (fmb) fmb.hidden = pipe !== "moodboard_showcase";
+  if (pipe === "moodboard_showcase") refreshMoodboardPalette(false);
+  const fl = $("#capFieldsLine"); if (fl) fl.hidden = !(pipe === "card_pan" || pipe === "scroll_gallery");
+  const ff = $("#capFieldsFast"); if (ff) ff.hidden = pipe !== "fast_cut";
+  // Dynamic Collection Showcase: collection title field (dark serif on white bars design)
+  const fz = $("#capFieldsZoom"); if (fz) fz.hidden = pipe !== "zoom_punch";
+  const fc2 = $("#capFieldsCin"); if (fc2) fc2.hidden = !cin;
+  const ft = $("#capFieldsThree"); if (ft) ft.hidden = !three;
+  const fb = $("#capFieldsBw"); if (fb) fb.hidden = pipe !== "bw_reveal";
+  const fba = $("#capFieldsBa"); if (fba) fba.hidden = pipe !== "before_after";
+  // Wedding Signage & Decor (decor_show): the only no-text template whose
+  // dedicated caption field block was never unhidden — surface decorCap.
+  const fd = $("#capFieldsDecor"); if (fd) fd.hidden = pipe !== "decor_show";
+  // 2026-11-11 用户③：Wedding Color Inspiration(scroll_gallery) 与 Three-Panel
+  // Showcase(three_screen) 不要文字选项 → 直接隐藏整个 On-Screen Text 子卡
+  // （开关 + 字体下拉 + 文案输入框一并隐藏），与其它模版切换时再按各自规则显示。
+  // 2026-11-25：Moodboard 画面全程无文字，同款处理（它的 step4 换成了色块编辑卡）。
+  const noText = pipe === "scroll_gallery" || pipe === "three_screen" ||
+                 pipe === "moodboard_showcase";
+  const sc0 = $("#subCaptions"); if (sc0) sc0.hidden = noText;
+  // top5/carousel 的文字（标题/名次/SKU）在 step2 每图下编辑，step4 没有
+  // 对应输入框 → 开关打开也不显示空的 capFields。
+  const cf = $("#capFields");
+  if (cf) cf.hidden = !capOn() || pipe === "top5" || pipe === "carousel";
+  const fw = $("#capFontWrap"); if (fw) fw.hidden = hideFontPick;
+  const fp = $("#fontPreview"); if (fp) fp.hidden = hideFontPick;
+  // 2026-11-10：隐藏字体选择（decor_show / 原生文字模版，含 Beat-Synced）时，
+  // 强制落到 Beat-Synced 同款默认字 = Cormorant Garamond SemiBold Italic("italic")。
+  // 否则客户在其它可选字体模版改过 #capFont 后切过来，脏值残留会让 decor_show
+  // 与 Beat-Synced 字体不一致。
+  if (hideFontPick) { const _cf = $("#capFont"); if (_cf) _cf.value = "italic"; }
+  const vf = $("#voFields"); if (vf) vf.hidden = !($("#voOn") && $("#voOn").checked);
+  // Branding toggle: reveal the logo/tagline fields only when switched on (2026-11-03).
+  const bOn = !!($("#brandOn") && $("#brandOn").checked);
+  const sb = $("#subBranding"); if (sb) sb.classList.toggle("on", bOn);
+  const brf = $("#brandFields"); if (brf) brf.hidden = !bOn;
+  const bf = $("#bgmFields"); if (bf) bf.hidden = false;   // 2026-10-27 BGM picker: all templates
+  loadBgmList();                                            // lazy-load track list once
+  prefillFastCaption();
+  prefillCaptions();
+  updateFontPreview();
+  if (cin && capOn()) {
+    const el = $("#cinText");
+    if (el && el.value.trim() === "") el.value = "the details, the day";
+  }
+}
+
+/* When the user turns on "Add Captions" for Fast Cut, surface the default
+   italic caption text so it's visible/editable right away (instead of an
+   empty field with only a placeholder). Only fills when the field is empty,
+   so any text the user types is never overwritten. */
+function prefillFastCaption() {
+  if (!isFastCutTpl() || !capOn()) return;
+  const el = $("#fcText");
+  if (el && el.value.trim() === "") el.value = "the details, the day";
+}
+
+/* 2026-11-03 · Captions 默认开启 + 自动文案（两段式）：
+   ① 先用模版自身默认文案即时预填（参考模版的原生文字）；
+   ② 再向 /api/caption-suggest 拉一份「按上传图片识别」的建议文案
+     （Palette/Grid 副标题 = 照片配色名；其余 = 视觉模型按图起稿），
+     只回填仍然为空的字段——客户手动输入过的文字绝不覆盖。 */
+const CAP_DEFAULTS = {
+  multi_suite:     { title: "Our Collection" },
+  four_grid:       { title: "WEDDING TREND" },
+  fast_cut:        { line: "the details, the day" },
+  cinematic_cut:   { line: "the details, the day" },
+  card_pan:        { line: "Hand-finished wedding invitations" },
+  scroll_gallery:  { line: "Hand-finished wedding invitations" },
+  three_screen:    { line: "Your three-screen story" },
+  decor_show:      { line: "Timeless details, beautifully made" },
+  collage_palette: { title: "Weddings 2027" },
+  bw_reveal:       { line: "details ...incoming" },
+  zoom_punch:      { line: "2027 New Collection \u00B7 Laser cut invites" },
+  before_after:    { title: "Mock Up", line: "Finished Invitation" },
+};
+/* 每个模版的文案输入框 id（与 index.html capFields* 一一对应） */
+const CAP_INPUTS = {
+  multi_suite:     { title: "colTitle" },
+  four_grid:       { title: "fgTitle", sub: "fgSub" },
+  collage_palette: { title: "wlTitle", sub: "wlSub" },
+  card_pan:        { line: "capLine" },
+  scroll_gallery:  { line: "capLine" },
+  fast_cut:        { line: "fcText" },
+  cinematic_cut:   { line: "cinText" },
+  three_screen:    { line: "tsText" },
+  decor_show:      { line: "decorCap" },
+  bw_reveal:       { line: "bwText" },
+  zoom_punch:      { line: "zpText" },
+  before_after:    { title: "baTitle", line: "baLabel" },
+};
+function _capPut(id, val) {
+  const el = $("#" + id);
+  if (el && !el.value.trim() && val) el.value = val;
+}
+function prefillCaptions() {
+  if (!ST.template || !capOn()) return;
+  const pipe = ST.template.pipeline;
+  const ids = CAP_INPUTS[pipe];
+  const def = CAP_DEFAULTS[pipe];
+  if (ids && def) {
+    if (ids.title && def.title) _capPut(ids.title, def.title);
+    if (ids.line && def.line) _capPut(ids.line, def.line);
+  }
+  fetchCaptionSuggest();
+}
+let CAP_SUGGEST_KEY = "";   // 已拉取过的 key：pipe + 图片签名（去重，避免重复 AI 调用）
+async function fetchCaptionSuggest(force) {
+  if (!ST.template || !capOn() || !ST.photos.length) return;
+  const pipe = ST.template.pipeline;
+  const key = pipe + "|" + ST.photos.map((p) => p.path).join(",");
+  // force=true：客户点「Detect colours again」时绕过去重，强制重新识别
+  if (!force && key === CAP_SUGGEST_KEY) return;
+  CAP_SUGGEST_KEY = key;
+  try {
+    const j = await api("/api/caption-suggest", {
+      pipeline: pipe,
+      srcs: ST.photos.map((p) => p.path),
+    });
+    const ids = CAP_INPUTS[pipe];
+    if (!ids) return;
+    if (ids.line && j.line) _capPut(ids.line, j.line);
+    if (ids.title && j.title) _capPut(ids.title, j.title);
+    if (ids.sub && j.sub) _capPut(ids.sub, j.sub);
+    updateFontPreview();
+  } catch (e) { /* 建议失败静默：字段保留默认/占位，不阻塞渲染流程 */ }
+}
+
+/* ============================================================================
+   Color Palette Showcase · 色板编辑器（2026-11-05 用户③）
+   进入 step4 / 点「Detect colours again」时调 /api/palette-preview：
+   服务端用上传画像投票 + 预设组合匹配，返回 {name, colors:[{name,hex,rgb}]}。
+   客户可改每档颜色名 / 微调色值；渲染时随 palette_edit 提交，最终生效。 */
+async function refreshPalettePanel(force) {
+  if (!ST.template || ST.template.pipeline !== "collage_palette") return;
+  if (!ST.photos.length) { ST.paletteCols = null; renderSwatchRows(); return; }
+  const key = "pp|" + ST.photos.map((p) => p.path).join(",");
+  if (!force && key === (refreshPalettePanel._key || "")) return;
+  refreshPalettePanel._key = key;
+  try {
+    const j = await api("/api/palette-preview", {
+      project: ST.project && ST.project.id,
+      srcs: ST.photos.map((p) => p.path),
+    });
+    ST.paletteCols = (j.colors || []).map((c) => ({ name: c.name || "", hex: c.hex || "#CCCCCC" }));
+    const sub = $("#wlSub");
+    if (sub && !sub.value.trim() && j.name) sub.value = j.name;
+    renderSwatchRows();
+  } catch (e) { /* 预览失败静默：识别在渲染时仍会自动进行 */ }
+}
+
+function renderSwatchRows() {
+  const box = $("#wlSwatches");
+  if (!box) return;
+  // 2026-11-06 user: swatches in one horizontal row; the per-swatch colour-name
+  // inputs are gone (names stay internal — only the shade is fine-tunable).
+  box.innerHTML = "";
+  box.style.cssText = "display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;align-items:center";
+  (ST.paletteCols || []).forEach((c) => {
+    const pick = document.createElement("input");
+    pick.type = "color";
+    pick.value = /^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#CCCCCC";
+    pick.title = c.name || "Colour";
+    pick.style.cssText = "width:42px;height:34px;padding:2px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer";
+    pick.addEventListener("input", () => { c.hex = pick.value; });
+    box.appendChild(pick);
+  });
+}
+
+/* ============================================================================
+   Moodboard Showcase · 色块编辑器（2026-11-25 客户）
+   四个色点压在居中主卡左上角，颜色来自上传图识别。进入 step4 时调
+   /api/moodboard-palette（与渲染同口径）拿色值，客户可逐个改色；
+   渲染时随 palette_edit 提交，服务端直接覆盖识别结果。
+   ========================================================================== */
+async function refreshMoodboardPalette(force, paletteText) {
+  if (!isMoodboardTpl()) return;
+  if (!ST.photos.length) { ST.mbCols = null; renderMbSwatches(); return; }
+  // 未显式传 text 时沿用输入框内容（重进第四步不丢客户输入的色板）；
+  // 传 null 表示强制走照片识别（"Detect colours again" 用）。
+  let text = paletteText;
+  if (text === undefined) {
+    const inp = $("#mbPaletteText");
+    text = inp ? inp.value.trim() : "";
+  }
+  if (text === null) text = "";
+  const key = "mb|" + ST.photos.map((p) => p.path).join(",") + "|" + text;
+  if (!force && key === (refreshMoodboardPalette._key || "")) return;
+  refreshMoodboardPalette._key = key;
+  try {
+    const j = await api("/api/moodboard-palette", {
+      project: ST.project && ST.project.id,
+      srcs: ST.photos.map((p) => p.path),
+      text: text,
+    });
+    ST.mbCols = (j.colors || []).map((c) => ({
+      name: c.name || "", hex: c.hex || "#CCCCCC",
+    }));
+    renderMbSwatches();
+    return j.source === "text";
+  } catch (e) { /* 预览失败静默：渲染时仍会自动识别 */ }
+}
+
+function renderMbSwatches() {
+  const box = $("#mbSwatches");
+  if (!box) return;
+  box.innerHTML = "";
+  box.style.cssText = "display:flex;flex-direction:row;flex-wrap:wrap;gap:10px;align-items:center";
+  (ST.mbCols || []).forEach((c) => {
+    const wrap = document.createElement("label");
+    wrap.style.cssText = "display:flex;flex-direction:column;align-items:center;gap:4px";
+    const pick = document.createElement("input");
+    pick.type = "color";
+    pick.value = /^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#CCCCCC";
+    pick.style.cssText = "width:52px;height:42px;padding:2px;border:1px solid #ddd;border-radius:999px;background:#fff;cursor:pointer";
+    pick.addEventListener("input", () => { c.hex = pick.value; nm.textContent = pick.value.toUpperCase(); });
+    const nm = document.createElement("span");
+    nm.className = "hint";
+    nm.style.cssText = "margin:0;font-size:10px;letter-spacing:.04em";
+    nm.textContent = (pick.value || "").toUpperCase();
+    wrap.appendChild(pick);
+    wrap.appendChild(nm);
+    box.appendChild(wrap);
+  });
+}
+
+/* 文字 → 色块（2026-11-25 客户口径，服务端 palette_from_text 同库同口径）。
+   命中：整组替换色块（客户仍可逐圆微调）；未命中：提示并不改动。 */
+async function _mbApplyPaletteText() {
+  const inp = $("#mbPaletteText");
+  const txt = inp ? inp.value.trim() : "";
+  if (!txt) return;
+  const hit = await refreshMoodboardPalette(true, txt);
+  if (hit) {
+    show("Palette applied from \u201C" + txt + "\u201D \u2014 tap any dot to fine-tune before rendering.");
+  } else {
+    show("Couldn't match a colour from \u201C" + txt + "\u201D \u2014 try words like Navy Blue, Gold, Blush, Sage.");
+  }
+}
+
+/* 字体样式实时预览：客户输入的文字 × 所选字体（白字、深底，
+   与成片一致摆在中上方观感）。所有模版都可见——含无原生文字的模版。 */
+function _capPreviewText() {
+  const pipe = ST.template ? ST.template.pipeline : "";
+  const ids = CAP_INPUTS[pipe] || {};
+  const order = [ids.line, ids.title].filter(Boolean);
+  for (const id of order) {
+    const el = $("#" + id);
+    if (el && el.value.trim()) return el.value.trim();
+  }
+  // 文字字段在 step 2 的两个模版：借用它们的标题做预览
+  if (pipe === "top5") { const el = $("#t5Title"); if (el && el.value.trim()) return el.value.trim(); }
+  if (pipe === "carousel") { const el = $("#carTitle2"); if (el && el.value.trim()) return el.value.trim(); }
+  const def = CAP_DEFAULTS[pipe] || {};
+  return def.line || def.title || "Hand-finished wedding invitations";
+}
+function updateFontPreview() {
+  const box = $("#fontPreview");
+  if (!box) return;
+  box.dataset.font = capFontKey();
+  $("#fontPreviewText").textContent = _capPreviewText();
+}
+
+/* ============================================================================
+   STEP 4 · create + export
+   ========================================================================== */
+
+function setResultVideo(url) {
+  const v = $("#resultVideo");
+  const box = $("#videoErr");
+  box.hidden = true;
+  box.textContent = "";
+  v.hidden = false;
+  v.onerror = null;
+  try { v.pause(); } catch (e) {}
+  v.removeAttribute("src");
+  try { v.load(); } catch (e) {}
+  v.src = url;
+  // If the browser refuses to play it inline, say so plainly and hand over the file
+  // instead of leaving an empty black frame on screen.
+  v.onerror = () => {
+    v.hidden = true;
+    box.hidden = false;
+    box.append(
+      document.createTextNode("Your browser could not play this video inline. Download it below, or "),
+      (() => { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "open the video in a new tab"; return a; })(),
+      document.createTextNode(".")
+    );
+  };
+}
+
+/* Font picked in step 4 (shared by every template's on-screen text).
+   Returns the fonts.py registry key; empty/select missing → default italic. */
+function capFontKey() {
+  const el = $("#capFont");
+  return (el && el.value) || "italic";
+}
+
+/* ---- Background music (2026-11-04): exactly 3 fixed options ----
+   "" = Use Template Music · "__upload__" = Upload My Own Music · "__none__" = No Music
+   曲库/上传曲目一律不再往下拉里加 option；客户上传的曲名记在 _lastUploaded，
+   选中 "Upload My Own Music" 时即用它。 */
+let BGM_LOADED = false;
+let _lastUploaded = null;
+async function loadBgmList() {
+  if (BGM_LOADED) return;
+  BGM_LOADED = true;
+  const sel = $("#bgmSel");
+  if (!sel) return;
+  try {
+    const j = await api("/api/bgm");
+    (j.tracks || [])
+      .filter((tr) => (tr.license || "").indexOf("User upload") === 0)
+      .forEach((tr) => { _lastUploaded = tr.name; });
+    // dropdown stays 3-option; nothing to append. Keep the current selection.
+  } catch (e) { /* server falls back to template music anyway */ }
+}
+function bgmPayload() {
+  const el = $("#bgmSel");
+  const v = el && el.value;
+  if (v === "__upload__") return _lastUploaded || null;  // the uploaded track name
+  return v || null;                                      // "" / "__none__" pass through
+}
+/* 把步骤 4 的 BGM 选择写进生成请求体：
+   "" → 不传（服务端用模版固定曲）；"__none__" → silent（无 BGM）；其余 → 上传曲名。
+   同时折叠 Branding（logo + tagline）：仅当客户上传了 logo 才写入，否则不动请求体。 */
+function applyBgm(body) {
+  // Fold branding FIRST — the "no music" branch returns early and must not
+  // skip the logo tail-board (logo + "No music" is a valid combination).
+  applyBranding(body);
+  const v = bgmPayload();
+  if (v === "__none__") { body.silent = true; return; }
+  if (v) body.bgm = v;
+}
+
+/* 把专属尾板（客户 logo + 可选标语）折叠进生成请求体。
+   没有上传 logo 时直接跳过 —— 服务端不会追加任何尾板。
+   2026-11-02：新增 Branding 开关（#brandOn），关闭时不折叠 logo，成片不带尾板。 */
+function applyBranding(body) {
+  const b = ST.branding;
+  const on = !!(($("#brandOn") && $("#brandOn").checked));
+  if (!b || !b.logo || !on) return;
+  const tag = ($("#brandTagline") && $("#brandTagline").value.trim()) || "";
+  body.branding = { logo: b.logo, tagline: tag };
+}
+
+/* 上传客户 logo（与上传 BGM 同机制：multipart blob → /api/upload?kind=brand）。
+   成功后得到服务端绝对路径，存进 ST.branding，供生成时折叠进请求体。 */
+async function uploadLogo(file) {
+  const hint = $("#logoHint");
+  const show = (t, bad) => { if (hint) { hint.textContent = t; hint.hidden = false; hint.classList.toggle("bad", !!bad); } };
+  const name = $("#logoName");
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { show("Please choose an image file (PNG or JPG).", true); return; }
+  if (file.size > 8 * 1024 * 1024) { show("Logo too large — please keep it under 8MB.", true); return; }
+  show("Uploading your logo…");
+  if (name) name.textContent = file.name;
+  ST.logoUploading = true;
+  try {
+    // 原图直传（不经 canvas 重编码）：保留 PNG 透明通道，也避免个别图片无法解码
+    // 导致压缩失败、logo 被悄悄丢掉（这正是之前「上传了但视频里没有」的隐患）。
+    const m = /\.([a-z0-9]+)$/i.exec(file.name || "");
+    let ext = (m ? m[1] : "png").toLowerCase();
+    if (["jpg", "jpeg", "png", "webp", "gif", "bmp"].indexOf(ext) < 0) ext = "png";
+    const entry = await uploadBlob(file.name, file, ext);
+    ST.branding = { logo: entry.path, tagline: "" };
+    show("Logo added — it will appear on a closing board at the end of your video.");
+  } catch (e) {
+    ST.branding = null;
+    if (name) name.textContent = "No logo selected";
+    show("Upload failed: " + (e.message || "unknown error"), true);
+  } finally {
+    ST.logoUploading = false;
+  }
+}
+async function uploadBgm(file) {
+  const hint = $("#bgmHint");
+  const show = (t) => { if (hint) { hint.textContent = t; hint.hidden = false; } };
+  if (!file) return;
+  if (file.size > 30 * 1024 * 1024) { show("Audio too large — please keep it under 30MB."); return; }
+  show("Uploading “" + file.name + "”…");
+  const b64 = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).split(",")[1] || "");
+    fr.onerror = () => rej(new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+  try {
+    const j = await api("/api/bgm/upload", { name: file.name, data_b64: b64 });
+    BGM_LOADED = true;
+    if (j.name) _lastUploaded = j.name;
+    const sel = $("#bgmSel");
+    if (sel) {
+      sel.value = "__upload__";   // stay on the fixed "Upload My Own Music" option
+      // 2026-11-11：把上传成功的曲名写进选项文字，客户能一眼看到"当前会用到哪首"，
+      // 不再只是停在一句静态的 Upload My Own Music 上。
+      const opt = sel.querySelector('option[value="__upload__"]');
+      if (opt) {
+        const lb = String(j.label || file.name || "");
+        opt.textContent = "My Music: " + (lb.length > 26 ? lb.slice(0, 26) + "\u2026" : lb);
+      }
+    }
+    show("Added — “" + (j.label || file.name) + "” is selected for this video.");
+  } catch (e) {
+    show("Upload failed: " + (e.message || "unknown error"), true);
+    // 上传失败时不能让下拉停在 __upload__（否则生成会静默回退模版默认曲）。
+    const sel = $("#bgmSel");
+    if (sel && !_lastUploaded) sel.value = "";
+  }
+}
+
+// 2026-11-10 user：指定模板的关键文字字段必填——开启 Captions 后必须填写，否则拦截生成。
+const REQUIRED_TEXT = {
+  decor_show:    ["decorCap"],
+  multi_suite:   ["colTitle"],
+  cinematic_cut: ["cinText"],
+};
+const REQ_LABEL = {
+  decorCap: "On-screen text", colTitle: "Collection title",
+  cinText: "On-screen caption", tsText: "On-screen subtitle",
+};
+function checkRequiredText() {
+  const pipe = ST.template ? ST.template.pipeline : "";
+  const ids = REQUIRED_TEXT[pipe];
+  if (!ids || !capOn()) return { ok: true, missing: [] };
+  const missing = [];
+  for (const id of ids) {
+    const el = $("#" + id);
+    if (el && !el.value.trim()) missing.push({ id, el });
+  }
+  return { ok: missing.length === 0, missing };
+}
+
+async function generate() {
+  if (!ST.template || !ST.photos.length) { toast("Pick a template and add a photo first."); return; }
+  if (ST.logoUploading) { toast("Please wait — your logo is still uploading."); return; }
+  if (ST.busy) return;
+  const req = checkRequiredText();
+  if (!req.ok) {
+    req.missing.forEach((m, i) => {
+      m.el.classList.add("bad");
+      if (i === 0) m.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    toast("请先填写必填文字：" + req.missing.map((m) => REQ_LABEL[m.id] || m.id).join("、"), 4600);
+    return;
+  }
+  // 2026-11-11 用户：上传 BGM 后成片仍是模版默认曲 → 根因之一是选了 "Upload My Own
+  // Music" 但实际没有成功上传的曲目（上传失败/取消了文件对话框），旧逻辑静默回退
+  // 默认曲，客户完全无感知。现在直接拦下并给出明确指引，绝不静默换曲。
+  const _bv = ($("#bgmSel") || {}).value;
+  if (_bv === "__upload__" && !_lastUploaded) {
+    toast("Your music is not uploaded yet — finish the upload in step 4, or pick \u201CUse Template Music\u201D / \u201CNo Music\u201D.", 5200);
+    return;
+  }
+  ST.busy = true;
+  ST.rendered = false;
+  goStep(5);
+  $("#renderErr").hidden = true;
+  $("#result").hidden = true;
+  $("#renderBox").hidden = false;
+  $("#s4Title").textContent = "Creating Your Video";
+  $("#s4Lede").textContent = "Your video is being created. Please keep this tab open until it\u2019s ready.";
+  const t0 = Date.now();
+
+  // Route by template pipeline: card_pan (1-8 photos, detected pieces per photo) or cammove.
+  const t = ST.template;
+  const srcs = ST.photos.map((p) => p.path);
+  let job;
+  try {
+    if (t.pipeline === "card_pan") {
+      const body = {
+        project: ST.project.id,
+        // 2026-10-27 multi-photo: send every photo — each gets its own detected
+        // detail shots and the clips are stitched (photo 1 keeps the hook shot,
+        // the last keeps the closing pull-back).
+        srcs: srcs,
+        src: srcs[0],
+        // Format chosen in step 3 → pipeline format id. The server (and the plan
+        // builder behind it) re-composes the framing for this format.
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (t.plan) body.plan = t.plan;
+      if (t.target_secs) body.target_secs = t.target_secs;
+      // step 4 toggles: this template has no native text → captions = burned line.
+      // 2026-11-11: caption stays on even when voiceover is on — the caption sits
+      // upper-middle and voiceover subtitles sit lower, so they never overlap.
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      if (capOn()) {
+        body.captions = { on: true, text: (($("#capLine") && $("#capLine").value.trim()) || ""),
+                          font: capFontKey() };
+      }
+      setRender(2, "Reading the pieces in your photo, then creating your video in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/card-pan", body));
+    } else if (t.pipeline === "multi_suite") {
+      // Collection Showcase: every photo is one design; names + shot plan are optional.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        // Captions off → don't send design names either, so the recognized
+        // content from step 2 (the per-photo nameplates) stays out of the video.
+        labels: capOn() ? ST.labels.slice(0, srcs.length) : [],
+        captions: ST.caps.slice(0, srcs.length),
+        shots: ST.shots.slice(0, srcs.length),
+        focuses: ST.focuses.slice(0, srcs.length),
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      // Captions off → empty title = no opening title (the old "Our Collection"
+      // default only applies when captions are on and the field is left blank).
+      const capOnNow = capOn();
+      body.title = capOnNow ? (($("#colTitle") && $("#colTitle").value.trim()) || "") : "";
+      // 2026-11-03：有原生文字设计的模版，字体字号按模版设计来，不再用客户字体覆盖
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your collection video in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/multi-suite", body));
+    } else if (t.pipeline === "scroll_gallery") {
+      // Scrolling Gallery: every photo is shown; first half left (up), rest right (down).
+      // No names / shots — pure scrolling showcase.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      if (capOn()) {
+        body.captions = { on: true, text: (($("#capLine") && $("#capLine").value.trim()) || ""),
+                          font: capFontKey() };
+      }
+      setRender(2, "Building your scrolling gallery in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/scroll-gallery", body));
+    } else if (t.pipeline === "four_grid") {
+      // Grid Showcase: first four photos open as a 2x2 grid, then every photo quick-cuts.
+      // Cover title is optional (Add Captions toggle in step 4).
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_text = true;
+        body.title = (($("#fgTitle") && $("#fgTitle").value.trim()) || "");
+        body.subtitle = (($("#fgSub") && $("#fgSub").value.trim()) || "");
+        // 2026-11-03：字体字号按模版设计（衬线+花体），不用客户字体覆盖
+      } else {
+        body.show_text = false;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your grid video in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/four-grid", body));
+    } else if (t.pipeline === "fast_cut") {
+      // Fast Cut: every photo plays three times in a beat-synced quick cut;
+      // duration grows with the photo count (3N × 0.592s). Caption is optional
+      // (Add Captions toggle in step 4); blank field → server default text.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_text = true;
+        body.text = (($("#fcText") && $("#fcText").value.trim()) || "");
+        // 2026-11-03：字幕按模版设计（斜体通屏），不用客户字体覆盖
+      } else {
+        body.show_text = false;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your fast-cut video in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/fast-cut", body));
+    } else if (t.pipeline === "zoom_punch") {
+      // Dynamic Collection Showcase: photos stay perfectly STILL (no camera move,
+      // 2026-11-11 user decision) — only the CapCut-style transitions move;
+      // opening title (dark serif on white bars) is optional (Add Captions
+      // toggle in step 4); blank field → server default reference text.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_title = true;
+        body.title = (($("#zpText") && $("#zpText").value.trim()) || "");
+        // 2026-11-10：标题按模版设计（深色衬线压白条），不用客户字体覆盖
+      } else {
+        body.show_title = false;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your still-photo showcase in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/zoom-punch", body));
+    } else if (t.pipeline === "cinematic_cut") {
+      // Cinematic Cut: 6–12 photos, beat-synced cut — a zoom-whoosh opens the
+      // second shot exactly on the beat, a few shots rotate, the rest pan.
+      // Caption & voiceover are optional (step-4 toggles), same as Fast Cut.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_text = true;
+        body.text = (($("#cinText") && $("#cinText").value.trim()) || "");
+        body.font = capFontKey();   // 2026-11-10 user②：放开 Cinematic 字体选择（后端已支持）
+      } else {
+        body.show_text = false;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your cinematic cut in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/mix-cut", body));
+    } else if (t.pipeline === "three_screen") {
+      // Three-Screen Story: 5-12 photos → three stacked bands opening + per-photo move.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.captions = { on: true, text: (($("#tsText") && $("#tsText").value.trim()) || ""),
+                          font: capFontKey() };
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your three-screen story in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/three-screen", body));
+    } else if (t.pipeline === "top5") {
+      // TOP 5 Countdown: N product photos, a maroon rank number + the
+      // auto-recognized design name beside it on every shot (blank rank = auto
+      // countdown (n, n-1, … 01 from first to last photo).
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        skus: ST.labels.slice(0, srcs.length),
+        nums: [],
+        captions: [],
+        title_main: ($("#t5Title") && $("#t5Title").value.trim()) || ("TOP " + srcs.length),
+        title_sub: ($("#t5Sub") ? $("#t5Sub").value.trim() : ""),
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your TOP 5 countdown in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/top5", body));
+    } else if (t.pipeline === "carousel") {
+      // New Collection: 2-8 photos -> side-small / centre-full card carousel.
+      // Title lines and footer text are editable in step 2.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        title1: ($("#carTitle1") && $("#carTitle1").value.trim()) || "Our Wedding Invitations",
+        title2: ($("#carTitle2") && $("#carTitle2").value.trim()) || "NEW COLLECTION",
+        footer: ($("#carFooter") ? $("#carFooter").value.trim() : ""),
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your collection carousel in " + ST.ratio + "\u2026");
+      applyBgm(body);
+      ({ job } = await api("/api/carousel", body));
+    } else if (t.pipeline === "decor_show") {
+      // Decor Showcase: 3-12 photos -> per-photo full-frame camera move.
+      // 2026-11-03: optional on-screen caption line (burned upper-middle).
+      // 2026-11-11: voiceover no longer suppresses the caption line — caption is
+      // upper-middle, voiceover subtitles are lower, so both can show together.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      if (capOn()) {
+        body.captions = { on: true, text: (($("#decorCap") && $("#decorCap").value.trim()) || ""),
+                          font: capFontKey() };
+      }
+      setRender(2, "Building your decor showcase in " + ST.ratio + "…");
+      applyBgm(body);   // folds branding + BGM
+      ({ job } = await api("/api/decor-show", body));
+    } else if (t.pipeline === "collage_palette") {
+      // Wedding Look Collage: 3-12 photos -> two-column collage + auto colour
+      // swatches (pulled from the photos) + each photo shown one by one.
+      // Cover title is optional (Add Captions toggle in step 4).
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_text = true;
+        body.title = (($("#wlTitle") && $("#wlTitle").value.trim()) || "");
+        body.subtitle = (($("#wlSub") && $("#wlSub").value.trim()) || "");
+        // 2026-11-03：标题字体字号按模版设计（衬线正体+斜体），不用客户字体覆盖
+      } else {
+        body.show_text = false;
+      }
+      // 2026-11-05 用户③：客户编辑过的色板（名称/单色名/色块）随渲染提交
+      if (ST.paletteCols && ST.paletteCols.length) {
+        body.palette_edit = {
+          colors: ST.paletteCols.map((c) => ({ name: c.name || "", hex: c.hex || "" })),
+        };
+        const nm = ($("#wlSub") && $("#wlSub").value.trim()) || "";
+        if (nm) body.palette_edit.name = nm;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your wedding look collage in " + ST.ratio + "…");
+      applyBgm(body);
+      ({ job } = await api("/api/collage-palette", body));
+    } else if (t.pipeline === "moodboard_showcase") {
+      // Moodboard Showcase: 5-20 photos -> hero card (photo 1) + 4-tile grid
+      // (photos 2-5) + auto colour dots from the photos + optional auto-cutout
+      // sticker; then EVERY remaining photo plays full-screen one by one.
+      // 2026-11-26：原 slice(0, 8) 会把第 9 张起的图直接丢掉（客户反馈
+      // 「有的图片没有」），改为跟随服务端上限 20。
+      const body = {
+        project: ST.project.id,
+        srcs: srcs.slice(0, 20),
+        sticker: "auto",
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      // 2026-11-25 客户：第四步可改色块颜色（与 Color Palette 模版同款交互）
+      if (ST.mbCols && ST.mbCols.length) {
+        body.palette_edit = {
+          colors: ST.mbCols.map((c) => ({ name: c.name || "", hex: c.hex || "" })),
+        };
+      }
+      // 2026-11-26：step4 的口播开关此前只传给 collage_palette / three_screen
+      // 等模版，Moodboard 分支漏传 → 勾选了也没声音。与其余模版同口径补上。
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your moodboard showcase in " + ST.ratio + "…");
+      applyBgm(body);
+      ({ job } = await api("/api/moodboard-showcase", body));
+    } else if (t.pipeline === "bw_reveal") {
+      // B&W → Color Reveal: 10+ photos -> each opens B&W then reveals in colour
+      // with a continuous camera move; optional opening title (Add Captions toggle)
+      // and optional voiceover (step-4 toggle, 2026-11-09).
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_text = true;
+        body.text = (($("#bwText") && $("#bwText").value.trim()) || "");
+      } else {
+        body.show_text = false;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your B&W → Color reveal in " + ST.ratio + "…");
+      applyBgm(body);   // server keeps its fixed card-point BGM (bw_reveal_bgm.mp3)
+      ({ job } = await api("/api/bw-reveal", body));
+    } else if (t.pipeline === "before_after") {
+      // Mock Up / Finished Invitation: first photo = design mock-up (labelled
+      // "Mock Up"), every following photo is a finished shot (labelled
+      // "Finished Invitation"). Slow split-wipe reveal between photo 1 and 2
+      // highlights the before/after contrast; all other transitions differ.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+      };
+      if (capOn()) {
+        body.show_text = true;
+        body.title = (($("#baTitle") && $("#baTitle").value.trim()) || "");
+        body.label = (($("#baLabel") && $("#baLabel").value.trim()) || "");
+      } else {
+        body.show_text = false;
+      }
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Building your Before & After reveal in " + ST.ratio + "…");
+      applyBgm(body);   // server falls back to its fixed before_after_bgm.mp3
+      ({ job } = await api("/api/before-after", body));
+    } else if (t.pipeline === "hybrid_ai") {
+      // Smart Hybrid Motion: per-photo safe camera-move selection, AI video only
+      // where depth is safe, total length kept under 30s.
+      const body = {
+        project: ST.project.id,
+        srcs: srcs,
+        ratio: ratioApi(ST.ratio),
+        fps: 30,
+        ai_count: 2,
+        total_secs: 30,
+      };
+      const vo = voPayload();
+      if (vo) body.voiceover = vo;
+      setRender(2, "Choosing the safest camera move for each photo, then creating your video in " + ST.ratio + "…");
+      applyBgm(body);
+      ({ job } = await api("/api/hybrid-ai", body));
+    } else {
+      const body = { project: ST.project.id, ratio: ST.ratio, moves: t.seq || [] };
+      if (srcs.length >= 2) body.sources = srcs;
+      else body.src = srcs[0];
+      setRender(2, "Applying the camera work of \u201C" + esc(t.name) + "\u201D…");
+      ({ job } = await api("/api/cameramove/render", body));
+    }
+    const voReq = !!voPayload();   // 2026-11-06: voiceover requested? (surface failures)
+    const res = await pollJob(job, (j) => setRender(j.progress || 5, j.msg || "Creating…"));
+    const secs = res.secs || 0;
+    // 2026-11-12 用户：下载文件名与模板名称一致（不再是 invitation-promo-XXs.mp4）。
+    // 只剔除文件系统/URL 非法字符，空格、&、→ 等原样保留以贴近模板名；
+    // 服务端 ?dl= 走 RFC5987 百分号编码，能安全承载这些字符。
+    const tplName = (t && t.name ? String(t.name) : "invitation-promo")
+      .replace(/[\\/:*?"<>|\x00-\x1f]/g, "-")
+      .replace(/\s+/g, " ").trim();
+    const name = (tplName || "invitation-promo") + ".mp4";
+    const video = res.video || (res.file ? "/media/" + ST.project.id + "/cameramove/" + res.file.split("/").pop() : "");
+    setResultVideo(video);
+    $("#btnDownload").href = video + (video.indexOf("?") >= 0 ? "&" : "?") + "dl=" + encodeURIComponent(name);
+    $("#btnDownload").setAttribute("download", name);
+    // Below the video: duration · format · template (+ optional add-ons).
+    $("#resultMeta").textContent = fmt1(secs) + " seconds \u00B7 " + ST.ratio + " \u00B7 " + t.name +
+      (res.captions ? " \u00B7 Captions" : "") +
+      (res.voiceover ? " \u00B7 Voiceover" : "") +
+    (voReq && !res.voiceover ? " \u00B7 Voiceover unavailable" + (res.voiceover_error ? " (" + res.voiceover_error + ")" : "") : "") +
+      (res.branding ? " \u00B7 Logo (branding)" : "");
+    $("#renderBox").hidden = true;
+    $("#s4Title").textContent = "Your video is ready";
+    $("#s4Lede").textContent = "Preview your video, then download it to share.";
+    ST.rendered = true;
+    renderAside();
+    $("#result").hidden = false;
+  } catch (e) {
+    $("#renderBox").hidden = true;
+    $("#renderErr").hidden = false;
+    $("#renderErr").textContent = "Your video could not be created: " + e.message + " — please try again, or use a different photo.";
+  } finally {
+    ST.busy = false;
+  }
+}
+
+function setRender(pct, msg) {
+  const f = $("#renderFill");
+  if (f) f.style.width = Math.max(2, Math.min(100, pct || 0)) + "%";
+  const s = $("#renderStatus");
+  if (s) s.textContent = msg || "";
+}
+
+/* ---------------- right summary ---------------- */
+
+/* Rough estimated video length (seconds) for the summary panel. Mirrors the
+   per-template timing rules used by the renderers; unknown templates fall back
+   to the template's target length. Returns null before photos are added. */
+function estimatedSeconds() {
+  const t = ST.template;
+  const n = ST.photos.length;
+  if (!t || !n) return null;
+  const pipe = t.pipeline;
+  let s = null;
+  // Dynamic Collection Showcase: n shots x 1.8s + (n-1) whip transitions x 0.4s
+  if (pipe === "zoom_punch") s = 1.8 * n + 0.4 * (n - 1);
+  else if (pipe === "cinematic_cut") s = 4.8 + 0.56 * n;
+  else if (pipe === "three_screen") s = (3 * n + 9) * 0.5923;
+  else if (pipe === "scroll_gallery") s = 5 + 2.8 * n;
+  else if (pipe === "decor_show") s = 3 * n;
+  else if (pipe === "four_grid") s = 3.6 + 1.5 * n;
+  else if (pipe === "collage_palette") s = 5 + 2.8 * n;
+  else if (pipe === "carousel") s = 2.0 * n;
+  else if (pipe === "top5") s = 3 + 2.6 * n;
+  else s = (typeof t.target_secs === "number" ? t.target_secs : null);
+  return s == null ? null : Math.max(4, Math.round(s));
+}
+
+function renderAside() {
+  const ul = $("#asideList");
+  if (!ul) return;
+  const rows = [];
+  if (!ST.template) {
+    rows.push("<li>No template yet</li>");
+  } else {
+    rows.push("<li><b>Template:</b> " + esc(ST.template.name) + "</li>");
+    rows.push("<li><b>Photos:</b> " + ST.photos.length + "</li>");
+    const rname = (RATIOS.find((x) => x.id === ST.ratio) || RATIOS[0]).name;
+    rows.push("<li><b>Format:</b> " + esc(rname) + "</li>");
+    const secs = estimatedSeconds();
+    rows.push("<li><b>Estimated length:</b> " + (secs ? secs + " seconds" : "\u2014") + "</li>");
+    if (ST.branding && ST.branding.logo) rows.push("<li><b>Logo &amp; End Card:</b> on</li>");
+    if (ST.rendered) rows.push('<li class="ok">Video ready ✓</li>');
+  }
+  ul.innerHTML = rows.join("");
+}
+
+/* ---------------- wiring ---------------- */
+
+function bind() {
+  // template category chips
+  $("#tplChips").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-cat]");
+    if (!el) return;
+    TPL_CAT = el.dataset.cat;
+    renderTplChips();
+    renderGrid();
+  });
+  // search
+  $("#tplSearch").addEventListener("input", (e) => { TPL_Q = e.target.value; renderGrid(); });
+  // template card actions (preview / select)
+  $("#tplGrid").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-act]");
+    if (!el) return;
+    const id = el.dataset.id;
+    if (el.dataset.act === "choose") chooseTemplate(id);
+    else if (el.dataset.act === "preview") openTplPreview(id);
+  });
+  // hover a card → load & play its sample video on demand; leave → discard it.
+  // 2026-11-12 用户①：封面图优先——不再预载 13 个示例视频，悬停才创建
+  // <video>（节省流量 + 避免首屏发黑），移出即销毁还原海报。
+  $("#tplGrid").addEventListener("mouseover", (e) => {
+    const thumb = e.target.closest(".tpl-thumb");
+    if (!thumb) return;
+    lazyPlayThumb(thumb);
+  });
+  $("#tplGrid").addEventListener("mouseout", (e) => {
+    const thumb = e.target.closest(".tpl-thumb");
+    if (!thumb || thumb.contains(e.relatedTarget)) return;
+    stopThumbVideo(thumb);
+  });
+  // template preview lightbox
+  $("#tplLbClose").addEventListener("click", closeTplPreview);
+  $("#tplLightbox").addEventListener("click", (e) => {
+    if (e.target.id === "tplLightbox") closeTplPreview();
+  });
+  // uploaded-photo preview lightbox (2026-11-03 / 2026-11-12 zoom)
+  $("#photoLbClose").addEventListener("click", closePhotoPreview);
+  $("#photoLightbox").addEventListener("click", (e) => {
+    if (e.target.id === "photoLightbox") closePhotoPreview();
+  });
+  bindPhotoZoom();
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!$("#photoLightbox").hidden) closePhotoPreview();
+    if (!$("#tplLightbox").hidden) closeTplPreview();
+  });
+
+  // step navigation
+  $$(".rail-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      if (ST.busy) return;
+      const target = +el.dataset.step;
+      const cur = [1, 2, 3, 4, 5].find((i) => { const s = $("#step" + i); return s && !s.hidden; });
+      if (cur && target < cur) goStep(target);
+    });
+  });
+
+  // step 1 → 2
+  $("#btnToStep2").addEventListener("click", gotoStep2);
+  // step 2 back / → step 3
+  $("#btnBack1").addEventListener("click", () => goStep(1));
+  $("#btnToStep3").addEventListener("click", gotoStep3);
+  // step 3 format / back / → step 4
+  $("#ratios").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-ratio]");
+    if (!el) return;
+    ST.ratio = el.dataset.ratio;
+    ST.ratioPinned = true;   // user's own pick — auto default no longer overrides it
+    renderRatios();
+    renderAside();
+  });
+  $("#btnBack2").addEventListener("click", () => goStep(2));
+  $("#btnToStep4").addEventListener("click", gotoStep4);
+  // step 4 captions & voiceover / back / create
+  $("#btnBack2b").addEventListener("click", () => goStep(2));
+  $("#btnToStep5").addEventListener("click", generate);
+
+  // upload / drag & drop
+  const drop = $("#drop");
+  const input = $("#fileInput");
+  drop.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => { addFiles(input.files); input.value = ""; });
+  ["dragenter", "dragover"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => {
+    if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
+  });
+  // step 4 · captions / voiceover toggles reveal their fields
+  const capOnEl = $("#capOn");
+  if (capOnEl) capOnEl.addEventListener("change", renderStep4);
+  // step 4 · 字体预览联动（2026-11-03）：换字体 / 改文字即时刷新
+  const capFontEl = $("#capFont");
+  if (capFontEl) capFontEl.addEventListener("change", updateFontPreview);
+  const capFieldsEl = $("#capFields");
+  if (capFieldsEl) capFieldsEl.addEventListener("input", updateFontPreview);
+  // 2026-11-10 user④：口播「Key product detail」实时字数计数（上限 150）
+  const voSellingEl = $("#voSelling");
+  if (voSellingEl) {
+    const vsc = $("#voSellingCount");
+    const upd = () => { if (vsc) vsc.textContent = voSellingEl.value.length + " / 150"; };
+    voSellingEl.addEventListener("input", upd);
+    upd();
+  }
+  // 2026-11-04 · Color Palette 副标题：客户可改，也可一键按图重新识别
+  // 2026-11-05：改为刷新色板编辑器（预设组合匹配 + 每档色名/色值可改）
+  const wlRe = $("#wlRedetect");
+  if (wlRe) wlRe.addEventListener("click", async () => {
+    const sub = $("#wlSub");
+    if (sub) sub.value = "";
+    await refreshPalettePanel(true);
+    const v = sub && sub.value.trim();
+    show(v ? "Detected \u201C" + v + "\u201D from your photos \u2014 edit it if you like."
+           : "Couldn't read a palette name \u2014 type your own in the Subtitle field.");
+  });
+  // 2026-11-25 · Moodboard：一键按当前照片重新识别色块
+  const mbRe = $("#mbRedetect");
+  if (mbRe) mbRe.addEventListener("click", async () => {
+    const inp = $("#mbPaletteText");
+    if (inp) inp.value = "";                 // 重新识别 = 放弃文字色板
+    await refreshMoodboardPalette(true, null);
+    show("Swatches re-read from your photos \u2014 fine-tune any shade before rendering.");
+  });
+  // 2026-11-25 客户口径：文字输入匹配合适的色块（同 Color Palette Showcase
+  // 的 Subtitle 驱动）——"Navy Blue & Gold" 命中色名 → 色块整组替换；
+  // 一个色名都认不出 → 提示不改（渲染仍用照片识别，不强行套用）。
+  const mbApply = $("#mbApplyText");
+  if (mbApply) mbApply.addEventListener("click", _mbApplyPaletteText);
+  const mbInp = $("#mbPaletteText");
+  if (mbInp) mbInp.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); _mbApplyPaletteText(); }
+  });
+  // 2026-11-05 · Subtitle 文字驱动色块：输入如 "Navy Blue & Gold" →
+  // 防抖后调 /api/palette-preview（subtitle 参数）刷新下方色块（仍可手改）
+  const wlSubEl = $("#wlSub");
+  if (wlSubEl) {
+    let _wlSubT = null;
+    wlSubEl.addEventListener("input", () => {
+      clearTimeout(_wlSubT);
+      _wlSubT = setTimeout(async () => {
+        if (!ST.photos.length) return;
+        try {
+          const j = await api("/api/palette-preview", {
+            project: ST.project && ST.project.id,
+            srcs: ST.photos.map((p) => p.path),
+            subtitle: wlSubEl.value.trim(),
+          });
+          if (j && j.source === "text" && (j.colors || []).length) {
+            ST.paletteCols = j.colors.map((c) => ({
+              name: c.name || "", hex: c.hex || "#CCCCCC",
+            }));
+            renderSwatchRows();
+          }
+        } catch (e) { /* 文字匹配失败静默：仍走图像识别 */ }
+      }, 600);
+    });
+  }
+  const voOn = $("#voOn");
+  if (voOn) {
+    voOn.addEventListener("change", renderStep4);
+  }
+  // step 4 · branding toggle reveals logo/tagline fields (2026-11-03)
+  const brandOnEl = $("#brandOn");
+  if (brandOnEl) brandOnEl.addEventListener("change", renderStep4);
+  // step 4 · background music upload (2026-10-27)
+  const bgmFile = $("#bgmFile");
+  if (bgmFile) bgmFile.addEventListener("change", () => {
+    uploadBgm(bgmFile.files && bgmFile.files[0]);
+    bgmFile.value = "";
+  });
+  // step 4 · choosing "Upload My Own Music" in the dropdown opens the file picker
+  const bgmSelEl = $("#bgmSel");
+  if (bgmSelEl) bgmSelEl.addEventListener("change", () => {
+    if (bgmSelEl.value === "__upload__" && bgmFile) {
+      bgmFile.click();
+      // 2026-11-11：客户可能取消文件对话框——此时 _lastUploaded 为空，若不提示，
+      // 生成时会静默回退模版默认曲（用户反馈的"上传了却没换歌"主因之一）。
+      if (!_lastUploaded) {
+        const hint = $("#bgmHint");
+        if (hint) {
+          hint.textContent = "Pick a music file in the dialog (or press \u201CUpload Music\u201D). Generation is blocked until a track is actually uploaded.";
+          hint.hidden = false;
+        }
+      }
+    }
+  });
+  // step 4 · branding logo upload (2026-10-29)
+  const logoFile = $("#logoFile");
+  if (logoFile) logoFile.addEventListener("change", () => {
+    uploadLogo(logoFile.files && logoFile.files[0]);
+    logoFile.value = "";
+  });
+
+  // photo grid (reorder + remove + design-name inputs for the collection template)
+  $("#photos").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-act]");
+    if (!el || el.disabled) return;
+    if (el.dataset.act === "remove") removePhoto(+el.dataset.i);
+    else if (el.dataset.act === "shot") setShot(+el.dataset.i, el.dataset.shot);
+    else if (el.dataset.act === "move-left") movePhoto(+el.dataset.i, -1);
+    else if (el.dataset.act === "move-right") movePhoto(+el.dataset.i, +1);
+    else if (el.dataset.act === "preview") {
+      const p = ST.photos[+el.dataset.i];
+      if (p) openPhotoPreview(photoUrl(p.path));
+    }
+  });
+  $("#photos").addEventListener("input", (e) => {
+    const el = e.target.closest("[data-act]");
+    if (!el) return;
+    const i = parseInt(el.dataset.i, 10);
+    if (isNaN(i)) return;
+    if (el.dataset.act === "label") ST.labels[i] = el.value;
+    else if (el.dataset.act === "sku") ST.skus[i] = el.value;
+    else if (el.dataset.act === "num") ST.nums[i] = el.value;
+    else if (el.dataset.act === "cap") ST.caps[i] = el.value;
+  });
+
+  // Drag-to-reorder: grab any photo card (or its ⠿ handle) and drop it onto
+  // another slot. The whole card is draggable so reordering feels natural;
+  // the order sent to the renderer is exactly ST.photos order, so this controls
+  // which images land in the 2×2 grid, the scroll columns, or the cut sequence.
+  let dragFrom = null;
+  $("#photos").addEventListener("dragstart", (e) => {
+    // never hijack text selection inside name inputs / buttons
+    if (e.target.closest("input, select, textarea, button")) { e.preventDefault(); return; }
+    const ph = e.target.closest(".photo");
+    if (!ph) { e.preventDefault(); return; }
+    dragFrom = +ph.dataset.i;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", String(dragFrom)); } catch (_) {}
+    }
+    ph.classList.add("dragging");
+  });
+  $("#photos").addEventListener("dragover", (e) => {
+    const ph = e.target.closest(".photo");
+    if (!ph || dragFrom === null) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    document.querySelectorAll(".photo.dropzone").forEach((x) => x.classList.remove("dropzone"));
+    ph.classList.add("dropzone");
+  });
+  $("#photos").addEventListener("drop", (e) => {
+    const ph = e.target.closest(".photo");
+    if (!ph || dragFrom === null) return;
+    e.preventDefault();
+    const to = +ph.dataset.i;
+    const from = dragFrom;
+    dragFrom = null;
+    document.querySelectorAll(".photo.dropzone").forEach((x) => x.classList.remove("dropzone"));
+    if (to !== from) reorderPhoto(from, to);
+  });
+  $("#photos").addEventListener("dragend", () => {
+    dragFrom = null;
+    document.querySelectorAll(".photo.dragging").forEach((x) => x.classList.remove("dragging"));
+    document.querySelectorAll(".photo.dropzone").forEach((x) => x.classList.remove("dropzone"));
+  });
+
+  // make another
+  $("#btnAgain").addEventListener("click", () => startOver().catch((e) => toast(e.message)));
+
+  // setup modal
+  $("#btnSetup").addEventListener("click", openSetup);
+  $("#btnSetupClose").addEventListener("click", () => ($("#setupModal").hidden = true));
+  $("#btnCfgCancel").addEventListener("click", () => ($("#setupModal").hidden = true));
+  $("#btnCfgSave").addEventListener("click", () => saveSetup().catch((e) => toast(e.message)));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      $("#setupModal").hidden = true;
+      closeTplPreview();
+    }
+  });
+}
+
+async function openSetup() {
+  try {
+    const { config } = await api("/api/config");
+    const sb = config.storyboard_api || {};
+    $("#cfgKey").value = sb.api_key || "";
+    $("#cfgEp").value = sb.endpoint || "";
+  } catch (e) {}
+  $("#setupModal").hidden = false;
+}
+
+async function saveSetup() {
+  const { config } = await api("/api/config");
+  const sb = Object.assign({}, config.storyboard_api || {});
+  sb.api_key = $("#cfgKey").value.trim();
+  sb.endpoint = $("#cfgEp").value.trim();
+  await api("/api/config", { storyboard_api: sb });
+  $("#setupModal").hidden = true;
+  toast("Saved.");
+}
+
+async function boot() {
+  bind();
+  goStep(1);
+  // 2026-11-05：URL 带 ?setup=1 时显示设置入口（内网同事填 Ark Key 用），
+  // 前台客户正常访问不带参数 → 入口保持隐藏。
+  try {
+    if (new URLSearchParams(location.search).get("setup") === "1") {
+      const b = $("#btnSetup");
+      if (b) { b.hidden = false; b.style.display = ""; }
+    }
+  } catch (e) {}
+  try { await openSession(); } catch (e) { toast("Could not start a session: " + e.message, 6000); return; }
+  renderPhotos();
+  updateGenBtn();
+  await loadTemplates();   // may auto-select the only template → sets the format
+  renderRatios();
+}
+
+boot();
+
+window.__studio = { ST, RATIOS, goStep, addFiles, generate, gotoStep2, gotoStep3, startOver, openTplPreview, ratioApi };
