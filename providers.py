@@ -89,10 +89,14 @@ class MagentoRestProvider(AccountProvider):
         self.group_plan_map = dict(group_plan_map or {})
 
     # ---- 内部：一次带超时的 JSON 请求（标准库，无第三方依赖） ----
+    UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
     def _request(self, method, path, payload=None, bearer=None):
         url = self.base_url + path
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        headers = {"Content-Type": "application/json", "Accept": "application/json",
+                   "User-Agent": self.UA}
         if bearer:
             headers["Authorization"] = "Bearer " + bearer
         # 明确绕过系统代理：Magento 地址由配置直连，避免本机代理干扰
@@ -106,15 +110,21 @@ class MagentoRestProvider(AccountProvider):
             resp = self._request("POST", "/rest/V1/integration/customer/token",
                                  payload={"username": email, "password": password})
         except urllib.error.HTTPError as e:
-            if e.code in (400, 401, 403):
+            if e.code in (400, 401):
+                # Magento：账密错误 / 账号不存在均返回 401（消息模板含
+                # "disabled" 字样但状态是 401）→ 统一按密码错误处理
+                return None
+            if e.code == 403:
                 body = ""
                 try:
                     body = e.read()[:300].decode("utf-8", "replace").lower()
                 except Exception:
                     pass
-                if "disabled" in body or "locked" in body or e.code == 403:
+                # 仅 Magento 自己的 JSON 明确标记停用/锁定才判 403 停用；
+                # 其余 403（多为 Cloudflare WAF 拦数据中心 IP）按服务不可用处理
+                if body.startswith("{") and ("disabled" in body or "locked" in body):
                     raise AccountLocked("magento account disabled")
-                return None  # 用户名或密码错误 / 账号不存在
+                raise AuthUnavailable("token endpoint HTTP 403 (waf/blocked)")
             raise AuthUnavailable("token endpoint HTTP %s" % e.code)
         except Exception as e:
             raise AuthUnavailable("token endpoint unreachable: %s" % type(e).__name__)

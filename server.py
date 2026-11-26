@@ -1654,7 +1654,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._establish_identity()
             return True
         # 登录/登出/查看自身身份：恒放行，但先识别身份供处理器判断
-        if p in ("/api/login", "/api/logout", "/api/me", "/api/ops/login"):
+        if p in ("/api/login", "/api/logout", "/api/me", "/api/ops/login", "/api/auth/diag"):
             self._establish_identity()
             return True
         # 受保护接口：必须账号会话或 admin
@@ -2111,6 +2111,34 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             # ---- 账号系统接口（整合副本） ----
             # ---- 运营记录页登录：邮箱 + 密码（pbkdf2 校验），通过即签发管理员会话 ----
+            if p == "/api/auth/diag":
+                # 诊断端点：探测 Magento token 端点可达性（不发真实账密）
+                import urllib.request as _ureq
+                import urllib.error as _uerr
+                aa = (_ACCOUNT_CFG.get("auth_api") or {})
+                base_url = str(aa.get("base_url") or "").rstrip("/")
+                if not base_url:
+                    return self.send_json({"error": "auth_api not configured"}, 400)
+                try:
+                    req = _ureq.Request(
+                        base_url + "/rest/V1/integration/customer/token",
+                        data=json.dumps({"username": "diag@probe.invalid",
+                                         "password": "diag-probe"}).encode(),
+                        headers={"Content-Type": "application/json",
+                                 "Accept": "application/json",
+                                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                               "Chrome/126.0.0.0 Safari/537.36"})
+                    with _ureq.build_opener(
+                            _ureq.ProxyHandler({})).open(req, timeout=10) as r:
+                        return self.send_json({"ok": True, "status": r.status,
+                                               "body": r.read()[:160].decode("utf-8", "replace")})
+                except _uerr.HTTPError as e:
+                    return self.send_json({"ok": False, "status": e.code,
+                                           "body": e.read()[:160].decode("utf-8", "replace")})
+                except Exception as e:
+                    return self.send_json({"ok": False, "status": None,
+                                           "error": type(e).__name__ + ": " + str(e)[:120]})
             if p == "/api/ops/login":
                 body = self.read_body_json()
                 email = str(body.get("email") or "").strip().lower()
