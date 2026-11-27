@@ -30,6 +30,14 @@ def load_config():
         return json.load(f)
 
 
+def _configured_plan(plan_key, fallback_key):
+    plans = load_config().get("plans") or {}
+    plan = dict(plans.get(plan_key) or plans.get(fallback_key) or {})
+    plan.setdefault("label", plan_key or fallback_key)
+    plan["key"] = plan_key
+    return plan
+
+
 class AccountProvider(ABC):
     """统一身份契约。返回值只有 customer_id / email / group / plan / account_lock。"""
 
@@ -53,10 +61,7 @@ class LocalFixtureProvider(AccountProvider):
         return fixtures.verify(email, password)
 
     def get_plan(self, plan_key):
-        cfg = load_config()
-        plan = dict(cfg["plans"].get(plan_key) or cfg["plans"]["trial"])
-        plan["key"] = plan_key
-        return plan
+        return _configured_plan(plan_key, "trial")
 
     def source_name(self):
         return "local-fixture (offline, anonymized)"
@@ -158,10 +163,7 @@ class MagentoRestProvider(AccountProvider):
         }
 
     def get_plan(self, plan_key):
-        cfg = load_config()
-        plan = dict(cfg["plans"].get(plan_key) or cfg["plans"][self.default_plan])
-        plan["key"] = plan_key
-        return plan
+        return _configured_plan(plan_key, self.default_plan)
 
     def source_name(self):
         return "magento-rest (%s)" % self.base_url
